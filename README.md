@@ -15,13 +15,16 @@ file (`minesweeper.db`), so the game is fully portable.
 - LMB opens a cell (number = active mines in the 8 neighbors). LMB on a revealed
   number **chords**: when the flagged neighbors match the number, all remaining
   neighbors open at once.
-- RMB places a **permanent** flag — flags can never be removed. Flagging a cell that
-  actually holds a mine **defuses** it instantly, for free; flagging a safe cell
-  locks it forever, so flag only what you are sure about.
-- Stepping on a mine (LMB) also defuses it — the cell becomes visible and harmless,
-  but it burns one attempt (if limited). Out of attempts, or out of time — the field
-  is lost and is deleted after you leave it.
-- Win: every mine is defused (by flag or by stepping on it).
+- RMB places a flag; RMB on a flagged cell removes it. Flags are **blind**: they never
+  reveal or defuse anything — a flagged mine looks exactly like a flagged safe cell
+  (no board hint, no counter change, numbers untouched). Flagged cells are
+  click-locked: LMB does nothing on them until you remove the flag.
+- Stepping on a mine (LMB) **defuses** it — the cell shows the neutralized mine and
+  burns one attempt (if limited). That is the only thing that moves the neighbor
+  numbers down. Out of attempts, or out of time — the field is lost and is deleted
+  after you leave it.
+- Win: every mine is either flagged or defused. Tip: with unlimited flags,
+  blanket-flagging technically wins — set a flag limit for a real challenge.
 - Camera: mouse wheel zooms smoothly toward the cursor; middle mouse button / WASD
   pans; only visible cells render.
 - Sounds (CC0 by Kenney): reveal click, flag, explosion, win, lose. `M` toggles mute.

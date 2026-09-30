@@ -677,27 +677,32 @@ async fn main() {
                         let status_before = g.board.status;
                         let defused_before = g.board.defused.iter().filter(|&&d| d).count();
                         if is_mouse_button_pressed(MouseButton::Left) {
-                            if g.board.revealed[ci] {
-                                // Chording: click a satisfied number to open its neighbors.
-                                g.board.chord(x, y);
+                            if g.board.flagged[ci] {
+                                // A flag is a "do not touch" mark: LMB is blocked,
+                                // no sound, no state change, no autosave.
                             } else {
-                                g.board.reveal(x, y);
-                            }
-                            db::save_board(&conn, g.id, &g.board);
-                            g.autosave_accum = 0.0;
-                            // Sound: explosion when a mine got hit, otherwise click;
-                            // win/lose jingle overrides when the game just ended.
-                            let defused_now = g.board.defused.iter().filter(|&&d| d).count();
-                            if g.board.status != status_before {
-                                if g.board.status == Status::Won {
-                                    sounds.play(&sounds.win);
+                                if g.board.revealed[ci] {
+                                    // Chording: click a satisfied number to open its neighbors.
+                                    g.board.chord(x, y);
                                 } else {
-                                    sounds.play(&sounds.lose);
+                                    g.board.reveal(x, y);
                                 }
-                            } else if defused_now > defused_before {
-                                sounds.play(&sounds.explosion);
-                            } else {
-                                sounds.play(&sounds.click);
+                                db::save_board(&conn, g.id, &g.board);
+                                g.autosave_accum = 0.0;
+                                // Sound: explosion when a mine got hit, otherwise click;
+                                // win/lose jingle overrides when the game just ended.
+                                let defused_now = g.board.defused.iter().filter(|&&d| d).count();
+                                if g.board.status != status_before {
+                                    if g.board.status == Status::Won {
+                                        sounds.play(&sounds.win);
+                                    } else {
+                                        sounds.play(&sounds.lose);
+                                    }
+                                } else if defused_now > defused_before {
+                                    sounds.play(&sounds.explosion);
+                                } else {
+                                    sounds.play(&sounds.click);
+                                }
                             }
                         } else if is_mouse_button_pressed(MouseButton::Right) {
                             g.board.place_flag(x, y);
@@ -749,7 +754,7 @@ async fn main() {
                     ui::COL_TEXT,
                 );
                 ui::txt(
-                    "LMB - reveal · LMB on number - chord · RMB - flag/defuse (permanent) · wheel - zoom · MMB/WASD - pan · M - mute",
+                    "LMB - reveal · LMB on number - chord · RMB - flag (again removes; flagged is click-locked) · wheel - zoom · MMB/WASD - pan · M - mute",
                     vec2(16.0, screen_height() - 12.0),
                     13.0,
                     ui::COL_TEXT_DIM,
