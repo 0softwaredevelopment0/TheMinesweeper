@@ -1,68 +1,55 @@
 # TheMinesweeper — Development Plan
 
-Classic Minesweeper written in Rust with [macroquad](https://macroquad.rs) for rendering and input.
-
-## Goals
-
-- Faithful classic rules: minefield, flags, question marks, first-click safety, chording.
-- Simple, dependency-light GUI (macroquad only, no heavyweight framework).
-- Headless game logic separated from rendering and covered by unit tests.
+Portable Minesweeper in Rust (macroquad GUI, SQLite storage next to the exe).
+Current status reflects the big mechanics milestone (v0.2.0-nightly.1).
 
 ## Architecture
 
 ```
 src/
-├── main.rs      — macroquad app: window, game loop, input mapping, rendering
-├── board.rs     — pure game logic (no rendering deps, fully unit-tested)
-└── theme.rs     — colors, fonts, layout constants
+├── main.rs   — scenes: menu, create-field form, game; HUD; camera; autosave loop
+├── board.rs  — pure game logic, std-only (xorshift Rng), unit-tested
+├── db.rs     — rusqlite (bundled): schema + CRUD, boards as packed bitmaps
+└── ui.rs     — minimal widgets (button, text field), theme, TTF font loader
 ```
 
-Key pieces of `board.rs`:
+Key rules encoded in `board.rs`:
 
-- `Cell` — `is_mine: bool`, `state: CellState` where `CellState` is `Hidden | Revealed | Flagged | Question`.
-- `Board::new(width, height, mine_count)` — empty board; mines are placed lazily on the first reveal so the first click is never a mine and never touches one.
-- `Board::reveal(x, y)` — reveal a cell; flood-fill uncovers the connected zero-adjacency area.
-- `Board::toggle_flag(x, y)` — cycles `Hidden → Flagged → Question → Hidden`.
-- `Board::chord(x, y)` — reveal all unflagged neighbors when the flag count matches the adjacent-mine number.
-- `Board::status()` — `InProgress | Won | Lost` (`Won` = all non-mine cells revealed, `Lost` = a mine was revealed).
+- Mines are placed independently per cell (`mine_chance`) — no safe first click.
+- Revealing a mine defuses it: cell becomes safe/visible, one attempt is burned;
+  attempts exhausted → `Lost(AttemptsExhausted)`.
+- Numbers count still-active (not defused) mines; defusing updates them.
+- Win = every mine defused or flagged (wrong flags don't block).
+- Time limit hitting zero → `Lost(TimeUp)`.
+- Persistence: 4 packed bitmaps (mines/revealed/flagged/defused) as BLOBs.
 
-Rendering never mutates logic directly; it translates mouse input into board calls and draws `Board` state.
+## Done
 
-## Milestones
+- [x] Core logic + 17 unit tests (chance generation, flood-fill, defuse/lives,
+      flag limits, win/lose edges, serialization roundtrip, SQLite roundtrip)
+- [x] Menu: field list with status badges, delete with confirmation, scroll
+- [x] Create form: name, width/height, mine chance %, time/flags/attempts limits
+- [x] Game scene: grid rendering, LMB reveal, RMB flag, HUD (time/flags/attempts/
+      defused counter), finish overlays with reason
+- [x] Portable SQLite storage next to the exe; save on every action + 5 min autosave
+- [x] Camera: wheel zoom, MMB/WASD pan, viewport-culled rendering (big fields OK)
 
-### M1 — Core logic (headless, no graphics)
-- [ ] `Board` + `Cell` types, lazy mine placement with first-click safety
-- [ ] Flood-fill reveal, flag cycling, chording
-- [ ] Win/lose detection
-- [ ] Unit tests (`cargo test`): placement safety, flood-fill reachability, win/lose edges, chord rules
+## Next
 
-### M2 — Window, rendering, input
-- [ ] macroquad window sized to the board, grid rendering with classic 1–8 number colors
-- [ ] LMB reveal, RMB flag, MMB (or both-buttons) chord
-- [ ] Mine counter, timer, restart button in the top bar
-- [ ] Game over / victory overlay, board stays visible
+### M-A — Feel & polish
+- [ ] Chording (open neighbors when flags match the number) on MMB
+- [ ] Right-click flag → question-mark cycle (optional setting)
+- [ ] Reveal animation, timer color states, sounds (mute toggle)
+- [ ] Window icon; remember camera/zoom per field
+- [ ] Long-press / hold-to-reveal safety guard
 
-### M3 — Game flow
-- [ ] Difficulty presets: Beginner 9×9/10, Intermediate 16×16/40, Expert 30×16/99
-- [ ] Main menu: difficulty select + custom size/mine count (with sane limits)
-- [ ] Best times persisted to a local file per difficulty
+### M-B — Persistence & UX upgrades
+- [ ] Best-time / stats per field definition (wins, losses, best time)
+- [ ] Preset difficulties (Beginner/Intermediate/Expert) in the create form
+- [ ] Export/import a field as a file; DB backup on version upgrades
+- [ ] Russian/English UI toggle (strings are already centralized enough to split)
 
-### M4 — Polish
-- [ ] Sounds (reveal, explosion, win) with a mute toggle
-- [ ] Window icon, version in the window title
-- [ ] Keyboard shortcuts: N — new game, Esc — menu
-
-### M5 — Release readiness
-- [ ] GitHub Actions CI: build + test on Windows (primary), Linux, macOS
-- [ ] Tagged releases following the workspace versioning scheme (`major.minor.patch-channel.number`)
-
-## Versioning
-
-Single version for the whole project, workspace scheme: `version.subversion.patch-channel.number`.
-Current: `0.1.0-nightly.1` (initial skeleton — essentially untested, hence Nightly).
-First playable build with tested logic is expected to move to at least `alpha`.
-
-## Verification
-
-- `cargo test` — logic tests must pass before any commit that touches `board.rs`.
-- `cargo run` — manual playtest of the current milestone's checklist.
+### M-C — Release readiness
+- [ ] GitHub Actions CI: build + test (windows-latest primary)
+- [ ] Release profile tweaks (opt-level, LTO, strip), icon + version resource
+- [ ] Tagged releases per workspace versioning (`major.minor.patch-channel.number`)
