@@ -198,6 +198,13 @@ fn fmt_params_line(row: &FieldRow) -> String {
     )
 }
 
+/// Camera shift that keeps the world point under the cursor under the cursor
+/// while the cell size changes from `old_cell` to `new_cell`.
+fn zoom_cam_toward(cam: Vec2, old_cell: f32, new_cell: f32, mouse: Vec2, center: Vec2) -> Vec2 {
+    let world_under_cursor = mouse - center + cam;
+    (new_cell / old_cell) * world_under_cursor - (mouse - center)
+}
+
 fn window_conf() -> Conf {
     Conf {
         window_title: format!("TheMinesweeper {}", env!("CARGO_PKG_VERSION")),
@@ -568,13 +575,10 @@ async fn main() {
                     let m = ui::mouse();
                     let center = vec2(screen_width() / 2.0, screen_height() / 2.0);
                     let old = g.cell;
-                    let k = 1.0 - (-dt * 16.0).exp();
+                    let k = 1.0 - (-dt * 12.0).exp();
                     g.cell = old + (g.target_cell - old) * k;
                     if m.y > HUD_H {
-                        // world px under the cursor before this frame's scaling
-                        let world_under_cursor = m - center + g.cam;
-                        // keep that exact world point under the cursor afterwards
-                        g.cam = (g.cell / old) * world_under_cursor - (m - center);
+                        g.cam = zoom_cam_toward(g.cam, old, g.cell, m, center);
                     }
                 }
                 g.cam = clamp_cam(g.cam, &g.board, g.cell);
@@ -818,5 +822,32 @@ async fn main() {
             }
         }
         next_frame().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoom_anchor_keeps_world_point_under_cursor() {
+        // 1000x800 window, cell grows 50 -> 60, cursor at (600, 500).
+        let cam = vec2(250.0, 200.0);
+        let mouse = vec2(600.0, 500.0);
+        let center = vec2(500.0, 400.0);
+        let new_cam = zoom_cam_toward(cam, 50.0, 60.0, mouse, center);
+
+        // world point (px) under the cursor before the zoom:
+        let world = mouse - center + cam; // (350, 300)
+        // screen position of that world point AFTER the zoom (cell is now 60):
+        let origin = center - new_cam;
+        let after = origin + world * (60.0 / 50.0);
+        assert!(after.distance(mouse) < 0.001, "after={after:?} mouse={mouse:?}");
+
+        // sanity: zooming with the cursor exactly at screen center scales the
+        // camera around it (cam' = cam * new/old) — that IS the center-anchored zoom
+        let center_mouse = center;
+        let same = zoom_cam_toward(cam, 50.0, 40.0, center_mouse, center);
+        assert!(same.distance(cam * 0.8) < 1e-4);
     }
 }

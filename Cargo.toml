@@ -1,6 +1,6 @@
 [package]
 name = "theminesweeper"
-version = "0.2.6-nightly.1"
+version = "0.2.7-nightly.1"
 edition = "2024"
 description = "Classic Minesweeper game with a macroquad GUI"
 license = "MIT"
