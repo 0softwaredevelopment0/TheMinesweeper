@@ -291,21 +291,27 @@ impl Board {
         }
     }
 
-    /// Right click. Cycles flag -> empty. Respects the flag limit.
-    pub fn toggle_flag(&mut self, x: u32, y: u32) {
+    /// Right click. Flags are PERMANENT — a placed flag can never be removed.
+    /// Flagging a cell that actually holds a mine defuses it instantly: the mine
+    /// becomes visible and safe, no attempt is burned and no flag slot is used.
+    /// Flagging a safe cell permanently locks it (it can never be revealed) and
+    /// consumes one flag slot. Respects the flag limit.
+    pub fn place_flag(&mut self, x: u32, y: u32) {
         if self.status != Status::Active || !self.in_bounds(x, y) {
             return;
         }
         let i = self.idx(x, y);
-        if self.revealed[i] {
+        if self.revealed[i] || self.flagged[i] {
             return;
         }
-        if self.flagged[i] {
-            self.flagged[i] = false;
-            self.flags_used -= 1;
-        } else if self.def.flag_limit.map_or(true, |lim| self.flags_used < lim) {
-            self.flagged[i] = true;
-            self.flags_used += 1;
+        if self.def.flag_limit.map_or(true, |lim| self.flags_used < lim) {
+            if self.mines[i] {
+                self.defused[i] = true;
+                self.revealed[i] = true;
+            } else {
+                self.flagged[i] = true;
+                self.flags_used += 1;
+            }
         }
         self.refresh_status();
     }
@@ -449,7 +455,7 @@ mod tests {
         let mut b = Board::new_empty_cells(3, 3);
         b.mines.fill(false);
         b.mines[8] = true;
-        b.toggle_flag(0, 0);
+        b.place_flag(0, 0);
         b.reveal(0, 2); // zero cell -> flood fills the safe area
         assert!(!b.revealed[0], "flagged cell must stay covered");
         assert_eq!(b.flags_used, 1);
@@ -521,9 +527,9 @@ mod tests {
         b.def.attempts_limit = Some(5);
         b.reveal(0, 0);
         assert_eq!(b.status, Status::Active);
-        b.toggle_flag(1, 0);
+        b.place_flag(1, 0);
         assert_eq!(b.status, Status::Active);
-        b.toggle_flag(2, 0);
+        b.place_flag(2, 0);
         assert_eq!(b.status, Status::Won);
     }
 
@@ -532,8 +538,8 @@ mod tests {
         let mut b = Board::new_empty_cells(3, 3);
         b.mines.fill(false);
         b.mines[4] = true;
-        b.toggle_flag(0, 0); // wrong flag on a safe cell
-        b.toggle_flag(1, 1); // correct flag on the mine
+        b.place_flag(0, 0); // wrong flag on a safe cell
+        b.place_flag(1, 1); // correct flag on the mine
         assert_eq!(b.status, Status::Won);
     }
 
@@ -543,11 +549,12 @@ mod tests {
         b.mines.fill(false);
         b.mines[10] = true; // (2,2), neighbor of (1,1)
         b.mines[15] = true; // (3,3), far away — keeps the game running
-        b.revealed[5] = true; // (1,1) shows 1
-        b.toggle_flag(2, 2);
-        assert!(b.chord(1, 1));
+        b.revealed[5] = true; // (1,1): after the flag-defuse its number is 0
+        b.place_flag(2, 2); // flag on the mine -> instant defuse, not a flag
+        assert!(b.defused[10] && b.revealed[10]);
+        assert!(!b.flagged[10], "defused mines wear no flag marker");
+        assert!(b.chord(1, 1), "0 flags == 0 number -> chord opens the ring");
         assert!(b.revealed[0] && b.revealed[2] && b.revealed[8] && b.revealed[9]);
-        assert!(b.flagged[10], "flagged mine must not be opened by its own chord");
         assert_eq!(b.status, Status::Active, "distant mine keeps the game running");
     }
 
@@ -571,7 +578,7 @@ mod tests {
         b.def.attempts_limit = Some(2);
         b.attempts_left = Some(2);
         b.revealed[5] = true; // (1,1) shows 1
-        b.toggle_flag(0, 0); // flag elsewhere: flags == 1 == number -> chord fires
+        b.place_flag(0, 0); // flag elsewhere: flags == 1 == number -> chord fires
         assert!(b.chord(1, 1));
         assert!(b.defused[2], "the unflagged mine must be defused by the chord");
         assert_eq!(b.attempts_left, Some(1));
@@ -586,12 +593,12 @@ mod tests {
         b.mines[15] = true;
         b.revealed[5] = true;
         b.defused[10] = true; // defused mine: number around (1,1) is now 0
-        b.toggle_flag(2, 2); // one flag around -> 1 != 0 -> no chord
+        b.place_flag(0, 0); // safe flag around (1,1): 1 flag != 0 number -> no chord
         assert!(!b.chord(1, 1));
-        assert!(!b.revealed[0]);
-        b.toggle_flag(2, 2); // flag removed -> 0 == 0 -> chord opens
-        assert!(b.chord(1, 1));
-        assert!(b.revealed[0]);
+        assert!(!b.revealed[1]);
+        b.place_flag(0, 0); // flags are permanent: second RMB changes nothing
+        assert!(b.flagged[0]);
+        assert!(!b.chord(1, 1), "still blocked while the wrong flag stands");
     }
 
     #[test]
@@ -600,15 +607,29 @@ mod tests {
         b.mines.fill(false);
         b.mines[8] = true; // keeps the game active (avoids the instant-win on 0 mines)
         b.def.flag_limit = Some(1);
-        b.toggle_flag(0, 0);
+        b.place_flag(0, 0);
         assert!(b.flagged[0]);
-        b.toggle_flag(1, 0);
+        b.place_flag(1, 0);
         assert!(!b.flagged[1], "flag limit must block extra flags");
-        b.toggle_flag(0, 0); // remove, then place again elsewhere
-        assert!(!b.flagged[0]);
-        b.toggle_flag(1, 0);
-        assert!(b.flagged[1]);
+        b.place_flag(0, 0); // flags are permanent: RMB again changes nothing
+        assert!(b.flagged[0]);
         assert_eq!(b.flags_used, 1);
+    }
+
+    #[test]
+    fn flagging_a_mine_defuses_it_for_free() {
+        let mut b = Board::new_empty_cells(4, 4);
+        b.mines.fill(false);
+        b.mines[10] = true; // (2,2)
+        b.mines[15] = true;
+        b.def.attempts_limit = Some(3);
+        b.attempts_left = Some(3);
+        b.place_flag(2, 2); // flag on a mine -> free instant defuse
+        assert!(b.defused[10] && b.revealed[10]);
+        assert!(!b.flagged[10]);
+        assert_eq!(b.attempts_left, Some(3), "defusing by flag never burns attempts");
+        assert_eq!(b.flags_used, 0, "no flag slot is consumed on a mine");
+        assert_eq!(b.status, Status::Active);
     }
 
     #[test]

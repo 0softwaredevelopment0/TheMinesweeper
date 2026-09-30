@@ -4,6 +4,7 @@ mod ui;
 
 use board::{Board, FieldDef, LossReason, Rng, Status};
 use db::FieldRow;
+use macroquad::audio::{load_sound_from_bytes, play_sound, PlaySoundParams, Sound};
 use macroquad::prelude::*;
 use ui::{draw_rectangle_lines_ex, draw_rectangle_rec, TextField};
 
@@ -27,6 +28,44 @@ struct GameView {
     autosave_accum: f32,
     session_elapsed: u32,
     pan_grab: Option<Vec2>,
+    target_cell: f32,
+}
+
+/// CC0 sounds by Kenney (kenney.nl), bundled via include_bytes.
+struct Sounds {
+    click: Sound,
+    flag: Sound,
+    explosion: Sound,
+    win: Sound,
+    lose: Sound,
+    muted: bool,
+}
+
+impl Sounds {
+    async fn load() -> Self {
+        let load = |bytes: &'static [u8]| async move {
+            load_sound_from_bytes(bytes)
+                .await
+                .expect("failed to decode a bundled sound")
+        };
+        Sounds {
+            click: load(include_bytes!("../assets/sounds/click.ogg")).await,
+            flag: load(include_bytes!("../assets/sounds/flag.ogg")).await,
+            explosion: load(include_bytes!("../assets/sounds/explosion.ogg")).await,
+            win: load(include_bytes!("../assets/sounds/win.ogg")).await,
+            lose: load(include_bytes!("../assets/sounds/lose.ogg")).await,
+            muted: false,
+        }
+    }
+
+    fn play(&self, sound: &Sound) {
+        if !self.muted {
+            play_sound(
+                sound,
+                PlaySoundParams { looped: false, volume: 0.7 },
+            );
+        }
+    }
 }
 
 struct CreateForm {
@@ -166,6 +205,7 @@ fn window_conf() -> Conf {
 async fn main() {
     ui::init_font();
     let conn = db::open(&db::db_path());
+    let mut sounds = Sounds::load().await;
 
     let mut scene = Scene::Menu;
     let mut rows: Vec<FieldRow> = db::list_fields(&conn);
@@ -287,6 +327,7 @@ async fn main() {
                                 autosave_accum: 0.0,
                                 session_elapsed: 0,
                                 pan_grab: None,
+                                    target_cell: cell,
                             });
                             scene = Scene::Game;
                         }
@@ -436,6 +477,7 @@ async fn main() {
                                     autosave_accum: 0.0,
                                     session_elapsed: 0,
                                     pan_grab: None,
+                                    target_cell: cell,
                                 });
                                 scene = Scene::Game;
                             }
@@ -484,7 +526,7 @@ async fn main() {
                 if active {
                     let wheel = mouse_wheel().1;
                     if wheel != 0.0 {
-                        g.cell = (g.cell * (1.1f32).powf(wheel)).clamp(CELL_MIN, CELL_MAX);
+                        g.target_cell = (g.target_cell * (1.15f32).powf(wheel)).clamp(CELL_MIN, CELL_MAX);
                     }
                     if is_mouse_button_pressed(MouseButton::Middle) {
                         g.pan_grab = Some(ui::mouse());
@@ -509,6 +551,22 @@ async fn main() {
                     }
                     if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
                         g.cam.y += pan_speed;
+                    }
+                }
+
+                // Smooth zoom toward the mouse pointer: the cell size eases toward
+                // the wheel target and, while it moves, the camera is shifted so the
+                // world point under the cursor stays under the cursor.
+                if (g.cell - g.target_cell).abs() > 0.05 {
+                    let m = ui::mouse();
+                    let center = vec2(screen_width() / 2.0, screen_height() / 2.0);
+                    let old = g.cell;
+                    let k = 1.0 - (-dt * 14.0).exp();
+                    g.cell = old + (g.target_cell - old) * k;
+                    if m.y > HUD_H {
+                        let scale = g.cell / old;
+                        let world_under_cursor = m - center + g.cam;
+                        g.cam = scale * world_under_cursor - (m - center);
                     }
                 }
                 g.cam = clamp_cam(g.cam, &g.board, g.cell);
@@ -602,9 +660,14 @@ async fn main() {
                 }
 
                 // Board input.
+                if is_key_pressed(KeyCode::M) {
+                    sounds.muted = !sounds.muted;
+                }
                 if active {
                     if let Some((x, y)) = hover_cell {
                         let ci = (y * bw + x) as usize;
+                        let status_before = g.board.status;
+                        let defused_before = g.board.defused.iter().filter(|&&d| d).count();
                         if is_mouse_button_pressed(MouseButton::Left) {
                             if g.board.revealed[ci] {
                                 // Chording: click a satisfied number to open its neighbors.
@@ -614,10 +677,34 @@ async fn main() {
                             }
                             db::save_board(&conn, g.id, &g.board);
                             g.autosave_accum = 0.0;
+                            // Sound: explosion when a mine got hit, otherwise click;
+                            // win/lose jingle overrides when the game just ended.
+                            let defused_now = g.board.defused.iter().filter(|&&d| d).count();
+                            if g.board.status != status_before {
+                                if g.board.status == Status::Won {
+                                    sounds.play(&sounds.win);
+                                } else {
+                                    sounds.play(&sounds.lose);
+                                }
+                            } else if defused_now > defused_before {
+                                sounds.play(&sounds.explosion);
+                            } else {
+                                sounds.play(&sounds.click);
+                            }
                         } else if is_mouse_button_pressed(MouseButton::Right) {
-                            g.board.toggle_flag(x, y);
+                            g.board.place_flag(x, y);
                             db::save_board(&conn, g.id, &g.board);
                             g.autosave_accum = 0.0;
+                            // Flagging the last mine wins the game — jingle first then.
+                            if g.board.status != status_before {
+                                if g.board.status == Status::Won {
+                                    sounds.play(&sounds.win);
+                                } else {
+                                    sounds.play(&sounds.lose);
+                                }
+                            } else {
+                                sounds.play(&sounds.flag);
+                            }
                         }
                     }
                 }
@@ -654,7 +741,7 @@ async fn main() {
                     ui::COL_TEXT,
                 );
                 ui::txt(
-                    "LMB - reveal · LMB on number - chord · RMB - flag · wheel - zoom · MMB/WASD - pan",
+                    "LMB - reveal · LMB on number - chord · RMB - flag/defuse (permanent) · wheel - zoom · MMB/WASD - pan · M - mute",
                     vec2(16.0, screen_height() - 12.0),
                     13.0,
                     ui::COL_TEXT_DIM,
