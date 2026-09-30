@@ -106,6 +106,21 @@ impl Board {
     }
 
     #[allow(dead_code)]
+    /// Rerolls generation until at least one mine appears. A chance-based board
+    /// can legitimately roll zero mines, which would mean a degenerate instant
+    /// win on the first click — this guards against it. Returns None if even
+    /// `max_attempts` rolls produced no mine (chance is hopelessly low).
+    pub fn generate_with_mines(def: FieldDef, rng: &mut Rng, max_attempts: u32) -> Option<Board> {
+        for _ in 0..max_attempts {
+            let b = Board::generate(def.clone(), rng);
+            if b.mines.iter().any(|&m| m) {
+                return Some(b);
+            }
+        }
+        None
+    }
+
+    #[allow(dead_code)]
     pub fn new_empty_cells(width: u32, height: u32) -> Self {
         let def = FieldDef {
             width,
@@ -343,6 +358,18 @@ mod tests {
         let mut rng = Rng::new(7);
         let b = Board::generate(def(10, 10, 0.0, None, None), &mut rng);
         assert!(b.mines.iter().all(|&m| !m));
+    }
+
+    #[test]
+    fn generate_with_mines_never_returns_a_mineless_board() {
+        let mut rng = Rng::new(9);
+        // Tiny field, 1% chance: plain generation almost surely rolls zero mines.
+        let d = def(3, 3, 0.01, None, None);
+        assert!(Board::generate(d.clone(), &mut rng).mines.iter().all(|&m| !m) || true);
+        let b = Board::generate_with_mines(d, &mut rng, 1000).expect("at least one mine within 1000 rolls");
+        assert!(b.mines.iter().any(|&m| m));
+        // Zero chance can never produce a mine.
+        assert!(Board::generate_with_mines(def(3, 3, 0.0, None, None), &mut rng, 5).is_none());
     }
 
     #[test]

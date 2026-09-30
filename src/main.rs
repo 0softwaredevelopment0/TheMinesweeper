@@ -69,36 +69,36 @@ impl CreateForm {
     }
 
     fn build_def(&self) -> Result<FieldDef, String> {
-        let width = self.width.parse_u32().ok_or("Ширина: введите число от 2 до 500")?;
-        let height = self.height.parse_u32().ok_or("Высота: введите число от 2 до 500")?;
+        let width = self.width.parse_u32().ok_or("Width: enter a number from 2 to 500")?;
+        let height = self.height.parse_u32().ok_or("Height: enter a number from 2 to 500")?;
         if !(2..=500).contains(&width) || !(2..=500).contains(&height) {
-            return Err("Размер поля: от 2 до 500 по каждой стороне".into());
+            return Err("Field size: 2 to 500 per side".into());
         }
-        let chance_pct = self.chance.parse_u32().ok_or("Шанс мины: введите проценты от 1 до 99")?;
+        let chance_pct = self.chance.parse_u32().ok_or("Mine chance: enter a percentage from 1 to 99")?;
         if !(1..=99).contains(&chance_pct) {
-            return Err("Шанс мины: от 1 до 99%".into());
+            return Err("Mine chance: 1 to 99%".into());
         }
         let time = if self.time.value.trim().is_empty() {
             None
         } else {
-            let t = self.time.parse_u32().ok_or("Время: введите секунды или оставьте пустым")?;
+            let t = self.time.parse_u32().ok_or("Time: enter seconds or leave empty")?;
             if t == 0 || t > 2_592_000 {
-                return Err("Время: от 1 секунды до 30 суток".into());
+                return Err("Time: 1 second to 30 days".into());
             }
             Some(t)
         };
         let flags = if self.flags.value.trim().is_empty() {
             None
         } else {
-            let f = self.flags.parse_u32().ok_or("Флажки: введите число или оставьте пустым")?;
+            let f = self.flags.parse_u32().ok_or("Flags: enter a number or leave empty")?;
             Some(f.min(width * height))
         };
         let attempts = if self.attempts.value.trim().is_empty() {
             None
         } else {
-            let a = self.attempts.parse_u32().ok_or("Попытки: введите число или оставьте пустым")?;
+            let a = self.attempts.parse_u32().ok_or("Attempts: enter a number or leave empty")?;
             if a > 9999 {
-                return Err("Попытки: не больше 9999".into());
+                return Err("Attempts: at most 9999".into());
             }
             (a > 0).then_some(a)
         };
@@ -142,7 +142,7 @@ fn fmt_params_line(row: &FieldRow) -> String {
     let flags = d.flag_limit.map_or_else(|| "∞".to_string(), |f| f.to_string());
     let attempts = d.attempts_limit.map_or_else(|| "∞".to_string(), |a| a.to_string());
     format!(
-        "{}×{} · мины {}% · время {} · флажки {} · попытки {}",
+        "{}x{} · mines {}% · time {} · flags {} · attempts {}",
         d.width,
         d.height,
         (d.mine_chance * 100.0).round() as u32,
@@ -185,30 +185,30 @@ async fn main() {
                     draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
                     let p = Rect::new(sw / 2.0 - 250.0, sh / 2.0 - 100.0, 500.0, 200.0);
                     ui::panel(p, ui::COL_PANEL);
-                    ui::txt("Удалить поле?", vec2(p.x + 24.0, p.y + 44.0), 22.0, ui::COL_TEXT);
+                    ui::txt("Delete field?", vec2(p.x + 24.0, p.y + 44.0), 22.0, ui::COL_TEXT);
                     ui::txt(
-                        &format!("«{name}» — прогресс будет потерян безвозвратно"),
+                        &format!("\"{name}\" — its progress will be lost permanently"),
                         vec2(p.x + 24.0, p.y + 72.0),
                         14.0,
                         ui::COL_TEXT_DIM,
                     );
-                    if ui::danger_button(Rect::new(p.x + 24.0, p.y + 116.0, 150.0, 46.0), "Удалить", 18.0, true) {
+                    if ui::danger_button(Rect::new(p.x + 24.0, p.y + 116.0, 150.0, 46.0), "Delete", 18.0, true) {
                         db::delete_field(&conn, id);
                         rows = db::list_fields(&conn);
                         confirm_delete = None;
                     }
-                    if ui::button(Rect::new(p.x + p.w - 174.0, p.y + 116.0, 150.0, 46.0), "Отмена", 18.0, true) {
+                    if ui::button(Rect::new(p.x + p.w - 174.0, p.y + 116.0, 150.0, 46.0), "Cancel", 18.0, true) {
                         confirm_delete = None;
                     }
                 } else {
-                    ui::txt("САПЁР", vec2(28.0, 54.0), 40.0, ui::COL_TEXT);
+                    ui::txt("MINESWEEPER", vec2(28.0, 54.0), 40.0, ui::COL_TEXT);
                     ui::txt(
-                        "портативная версия · поля хранятся рядом с exe",
+                        "portable · fields are stored next to the exe",
                         vec2(30.0, 80.0),
                         14.0,
                         ui::COL_TEXT_DIM,
                     );
-                    if ui::button(Rect::new(screen_width() - 268.0, 30.0, 240.0, 48.0), "+ Создать поле", 18.0, true) {
+                    if ui::button(Rect::new(screen_width() - 268.0, 30.0, 240.0, 48.0), "+ New field", 18.0, true) {
                         form = CreateForm::new();
                         scene = Scene::Create;
                     }
@@ -226,7 +226,7 @@ async fn main() {
 
                     if rows.is_empty() {
                         ui::txt_centered(
-                            "Полей пока нет — создайте первое",
+                            "No fields yet — create your first one",
                             vec2(screen_width() / 2.0, screen_height() / 2.0),
                             20.0,
                             ui::COL_TEXT_DIM,
@@ -246,13 +246,13 @@ async fn main() {
                         ui::txt(&fmt_params_line(row), vec2(r.x + 18.0, r.y + 58.0), 14.0, ui::COL_TEXT_DIM);
 
                         let (status_label, status_color) = match row.status {
-                            Status::Active => ("в игре", ui::COL_OK),
-                            Status::Won => ("пройдено", ui::COL_GOLD),
-                            Status::Lost => ("провал", ui::COL_DANGER),
+                            Status::Active => ("in progress", ui::COL_OK),
+                            Status::Won => ("cleared", ui::COL_GOLD),
+                            Status::Lost => ("failed", ui::COL_DANGER),
                         };
                         ui::txt(status_label, vec2(r.x + r.w - 268.0, r.y + 30.0), 14.0, status_color);
 
-                        let open_label = if row.status == Status::Active { "Играть" } else { "Открыть" };
+                        let open_label = if row.status == Status::Active { "Play" } else { "Open" };
                         if ui::button(Rect::new(r.x + r.w - 250.0, r.y + 18.0, 118.0, 42.0), open_label, 16.0, true) {
                             if db::load_board(&conn, row.id).is_some() {
                                 open_id = Some(row.id);
@@ -260,7 +260,7 @@ async fn main() {
                                 broken_id = Some(row.id);
                             }
                         }
-                        if ui::danger_button(Rect::new(r.x + r.w - 120.0, r.y + 18.0, 100.0, 42.0), "Удалить", 16.0, true) {
+                        if ui::danger_button(Rect::new(r.x + r.w - 120.0, r.y + 18.0, 100.0, 42.0), "Delete", 16.0, true) {
                             confirm_delete = Some(row.id);
                         }
                     }
@@ -300,13 +300,29 @@ async fn main() {
                 let ph = 700.0f32.min(sh - 40.0);
                 let p = Rect::new((sw - pw) / 2.0, (sh - ph) / 2.0, pw, ph);
                 ui::panel(p, ui::COL_PANEL);
-                ui::txt("Новое поле", vec2(p.x + 28.0, p.y + 46.0), 28.0, ui::COL_TEXT);
+                ui::txt("New field", vec2(p.x + 28.0, p.y + 46.0), 28.0, ui::COL_TEXT);
                 ui::txt(
-                    "мины расставляются случайно: шанс на каждую клетку отдельно",
+                    "mines are placed at random — every cell rolls its own chance",
                     vec2(p.x + 28.0, p.y + 72.0),
                     13.0,
                     ui::COL_TEXT_DIM,
                 );
+
+                // Live density preview: expected mine count from current form values.
+                {
+                    let fwc = form.width.parse_u32().unwrap_or(16);
+                    let fhc = form.height.parse_u32().unwrap_or(16);
+                    let fpc = form.chance.parse_u32().unwrap_or(10);
+                    let expected = (fwc as u64 * fhc as u64 * fpc as u64 + 50) / 100;
+                    ui::txt(
+                        &format!(
+                            "expect ~{expected} mines on {fwc}x{fhc} — the fewer mines, the more one click opens"
+                        ),
+                        vec2(p.x + 28.0, p.y + 94.0),
+                        12.0,
+                        ui::COL_ACCENT,
+                    );
+                }
 
                 let lx = p.x + 28.0;
                 let fw = pw - 56.0;
@@ -321,22 +337,22 @@ async fn main() {
                     Rect::new(lx, row0 + 394.0, fw, 42.0),
                 ];
                 let labels: [&str; 7] = [
-                    "Название",
-                    "Ширина (2–500)",
-                    "Высота (2–500)",
-                    "Шанс мины, % (1–99)",
-                    "Время, сек",
-                    "Флажки",
-                    "Попытки",
+                    "Name",
+                    "Width (2–500)",
+                    "Height (2–500)",
+                    "Mine chance, % (1–99)",
+                    "Time, sec",
+                    "Flags",
+                    "Attempts",
                 ];
                 let placeholders: [&str; 7] = [
-                    "без названия",
+                    "unnamed",
                     "",
                     "",
                     "",
-                    "пусто/0 — без ограничения",
-                    "пусто/0 — без ограничения",
-                    "пусто/0 — без ограничения",
+                    "empty or 0 - unlimited",
+                    "empty or 0 - unlimited",
+                    "empty or 0 - unlimited",
                 ];
 
                 let active = form.active;
@@ -369,41 +385,45 @@ async fn main() {
                 }
 
                 let by = p.y + ph - 64.0;
-                if ui::button(Rect::new(p.x + 28.0, by, 220.0, 46.0), "Создать поле", 17.0, true) {
+                if ui::button(Rect::new(p.x + 28.0, by, 220.0, 46.0), "Create field", 17.0, true) {
                     match form.build_def() {
-                        Ok(def) => {
-                            let mut rng = Rng::from_system_time();
-                            let b = Board::generate(def, &mut rng);
-                            let name = if form.name.value.trim().is_empty() {
-                                format!("Поле {}", rows.len() + 1)
-                            } else {
-                                form.name.value.trim().to_string()
-                            };
-                            let id = db::insert_board(&conn, &name, &b);
-                            let fit = ((screen_width() - 120.0) / b.width() as f32)
-                                .min((screen_height() - HUD_H - 120.0) / b.height() as f32);
-                            let cell = fit.clamp(CELL_MIN, CELL_MAX);
-                            let cam = clamp_cam(
-                                vec2(b.width() as f32 * cell / 2.0, b.height() as f32 * cell / 2.0),
-                                &b,
-                                cell,
-                            );
-                            game = Some(GameView {
-                                id,
-                                board: b,
-                                cell,
-                                cam,
-                                sec_accum: 0.0,
-                                autosave_accum: 0.0,
-                                session_elapsed: 0,
-                                pan_grab: None,
-                            });
-                            scene = Scene::Game;
-                        }
+                        Ok(def) => match Board::generate_with_mines(def, &mut Rng::from_system_time(), 16) {
+                            Some(b) => {
+                                let name = if form.name.value.trim().is_empty() {
+                                    format!("Field {}", rows.len() + 1)
+                                } else {
+                                    form.name.value.trim().to_string()
+                                };
+                                let id = db::insert_board(&conn, &name, &b);
+                                let fit = ((screen_width() - 120.0) / b.width() as f32)
+                                    .min((screen_height() - HUD_H - 120.0) / b.height() as f32);
+                                let cell = fit.clamp(CELL_MIN, CELL_MAX);
+                                let cam = clamp_cam(
+                                    vec2(b.width() as f32 * cell / 2.0, b.height() as f32 * cell / 2.0),
+                                    &b,
+                                    cell,
+                                );
+                                game = Some(GameView {
+                                    id,
+                                    board: b,
+                                    cell,
+                                    cam,
+                                    sec_accum: 0.0,
+                                    autosave_accum: 0.0,
+                                    session_elapsed: 0,
+                                    pan_grab: None,
+                                });
+                                scene = Scene::Game;
+                            }
+                            None => {
+                                form.error =
+                                    Some("Mine chance too low: not a single mine was rolled — raise it".into());
+                            }
+                        },
                         Err(e) => form.error = Some(e),
                     }
                 }
-                if ui::button(Rect::new(p.x + pw - 168.0, by, 140.0, 46.0), "Отмена", 17.0, true)
+                if ui::button(Rect::new(p.x + pw - 168.0, by, 140.0, 46.0), "Cancel", 17.0, true)
                     || is_key_pressed(KeyCode::Escape)
                 {
                     scene = Scene::Menu;
@@ -587,29 +607,29 @@ async fn main() {
                     ui::COL_TEXT
                 };
                 let flags_str = match g.board.def.flag_limit {
-                    Some(l) => format!("Флажки {}/{}", g.board.flags_used, l),
-                    None => format!("Флажки {}/∞", g.board.flags_used),
+                    Some(l) => format!("Flags {}/{}", g.board.flags_used, l),
+                    None => format!("Flags {}/inf", g.board.flags_used),
                 };
                 let att_str = match (g.board.attempts_left, g.board.def.attempts_limit) {
-                    (Some(a), Some(l)) => format!("Попытки {a}/{l}"),
-                    _ => "Попытки ∞".into(),
+                    (Some(a), Some(l)) => format!("Attempts {a}/{l}"),
+                    _ => "Attempts inf".into(),
                 };
-                ui::txt(&format!("Время {time_str}"), vec2(16.0, 34.0), 16.0, time_color);
+                ui::txt(&format!("Time {time_str}"), vec2(16.0, 34.0), 16.0, time_color);
                 ui::txt(&flags_str, vec2(190.0, 34.0), 16.0, ui::COL_TEXT);
                 ui::txt(&att_str, vec2(360.0, 34.0), 16.0, ui::COL_TEXT);
                 ui::txt(
-                    &format!("Мины обезврежены {defused_cnt}/{mines_total}"),
+                    &format!("Mines defused {defused_cnt}/{mines_total}"),
                     vec2(520.0, 34.0),
                     16.0,
                     ui::COL_TEXT,
                 );
                 ui::txt(
-                    "ЛКМ — открыть · ПКМ — флажок · колесо — зум · СКМ/WASD — обзор",
+                    "LMB - reveal · RMB - flag · wheel - zoom · MMB/WASD - pan",
                     vec2(16.0, screen_height() - 12.0),
                     13.0,
                     ui::COL_TEXT_DIM,
                 );
-                let mut exit_requested = ui::button(Rect::new(screen_width() - 136.0, 10.0, 120.0, 36.0), "Меню", 16.0, true)
+                let mut exit_requested = ui::button(Rect::new(screen_width() - 136.0, 10.0, 120.0, 36.0), "Menu", 16.0, true)
                     || is_key_pressed(KeyCode::Escape);
 
                 // Finish overlay.
@@ -621,16 +641,16 @@ async fn main() {
                     ui::panel(p, ui::COL_PANEL);
                     let (title, color, reason) = match g.board.status {
                         Status::Won => (
-                            "ПОБЕДА",
+                            "YOU WIN",
                             ui::COL_GOLD,
-                            "Каждая мина обезврежена или помечена флажком",
+                            "Every mine is defused or flagged",
                         ),
                         Status::Lost => (
-                            "ПОРАЖЕНИЕ",
+                            "YOU LOSE",
                             ui::COL_DANGER,
                             match g.board.loss_reason {
-                                Some(LossReason::TimeUp) => "Время вышло",
-                                _ => "Попытки закончились",
+                                Some(LossReason::TimeUp) => "Time is up",
+                                _ => "Out of attempts",
                             },
                         ),
                         Status::Active => unreachable!(),
@@ -638,12 +658,12 @@ async fn main() {
                     ui::txt_centered(title, vec2(sw / 2.0, p.y + 90.0), 42.0, color);
                     ui::txt_centered(reason, vec2(sw / 2.0, p.y + 140.0), 16.0, ui::COL_TEXT_DIM);
                     ui::txt_centered(
-                        &format!("Обезврежено мин: {defused_cnt} из {mines_total}"),
+                        &format!("Mines defused: {defused_cnt} of {mines_total}"),
                         vec2(sw / 2.0, p.y + 172.0),
                         16.0,
                         ui::COL_TEXT,
                     );
-                    if ui::button(Rect::new(sw / 2.0 - 120.0, p.y + 230.0, 240.0, 52.0), "В меню", 20.0, true) {
+                    if ui::button(Rect::new(sw / 2.0 - 120.0, p.y + 230.0, 240.0, 52.0), "Back to menu", 20.0, true) {
                         exit_requested = true;
                     }
                 }
