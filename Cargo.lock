@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "theminesweeper"
-version = "0.2.7-nightly.1"
+version = "0.2.8-nightly.1"
 dependencies = [
  "macroquad",
  "rusqlite",

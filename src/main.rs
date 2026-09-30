@@ -276,7 +276,7 @@ async fn main() {
                     let visible = screen_height() - top - 20.0;
                     let total_h = rows.len() as f32 * (row_h + gap);
                     let max_scroll = (total_h - visible).max(0.0);
-                    menu_scroll = (menu_scroll - mouse_wheel().1 * 44.0).clamp(0.0, max_scroll);
+                    menu_scroll = (menu_scroll - ui::normalize_wheel(mouse_wheel().1) * 60.0).clamp(0.0, max_scroll);
 
                     if rows.is_empty() {
                         ui::txt_centered(
@@ -538,9 +538,9 @@ async fn main() {
 
                 // Camera.
                 if active {
-                    let wheel = mouse_wheel().1;
-                    if wheel != 0.0 {
-                        g.target_cell = (g.target_cell * (1.2f32).powf(wheel)).clamp(CELL_MIN, CELL_MAX);
+                    let notches = ui::normalize_wheel(mouse_wheel().1);
+                    if notches != 0.0 {
+                        g.target_cell = (g.target_cell * (1.15f32).powf(notches)).clamp(CELL_MIN, CELL_MAX);
                     }
                     if is_mouse_button_pressed(MouseButton::Middle) {
                         g.pan_grab = Some(ui::mouse());
@@ -575,7 +575,7 @@ async fn main() {
                     let m = ui::mouse();
                     let center = vec2(screen_width() / 2.0, screen_height() / 2.0);
                     let old = g.cell;
-                    let k = 1.0 - (-dt * 12.0).exp();
+                    let k = 1.0 - (-dt * 10.0).exp();
                     g.cell = old + (g.target_cell - old) * k;
                     if m.y > HUD_H {
                         g.cam = zoom_cam_toward(g.cam, old, g.cell, m, center);

@@ -194,6 +194,16 @@ pub fn handle_typing(field: &mut TextField) {
     }
 }
 
+/// Windows (miniquad) reports RAW wheel deltas of +-120 per notch, while
+/// Linux/macOS report +-1.0. Normalize everything to whole notches, capped so
+/// a fast scroll cannot jump more than 3 steps per frame.
+pub fn normalize_wheel(delta: f32) -> f32 {
+    if delta.abs() < f32::EPSILON {
+        return 0.0;
+    }
+    delta.signum() * (delta.abs() / 120.0).ceil().min(3.0)
+}
+
 pub fn fmt_time(total_secs: u32) -> String {
     format!("{}:{:02}", total_secs / 60, total_secs % 60)
 }
@@ -210,4 +220,31 @@ pub fn fmt_plural_ru(n: u32, one: &str, few: &str, many: &str) -> String {
         many
     };
     format!("{n} {word}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wheel_normalizes_to_notches() {
+        // Windows (miniquad) raw deltas: +-120 per notch.
+        assert_eq!(normalize_wheel(120.0), 1.0);
+        assert_eq!(normalize_wheel(-120.0), -1.0);
+        assert_eq!(normalize_wheel(240.0), 2.0);
+        assert_eq!(normalize_wheel(600.0), 3.0, "fast scroll is capped at 3");
+        assert_eq!(normalize_wheel(0.0), 0.0);
+        // Linux/macOS already report +-1.0 per notch.
+        assert_eq!(normalize_wheel(1.0), 1.0);
+        assert_eq!(normalize_wheel(-1.0), -1.0);
+        assert_eq!(normalize_wheel(2.0), 1.0, "sub-notch deltas count as one notch");
+    }
+
+    #[test]
+    fn fmt_time_zero_pads() {
+        assert_eq!(fmt_time(0), "0:00");
+        assert_eq!(fmt_time(59), "0:59");
+        assert_eq!(fmt_time(300), "5:00");
+        assert_eq!(fmt_time(3723), "62:03");
+    }
 }
