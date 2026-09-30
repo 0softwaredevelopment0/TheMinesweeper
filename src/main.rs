@@ -9,8 +9,8 @@ use macroquad::prelude::*;
 use ui::{draw_rectangle_lines_ex, draw_rectangle_rec, TextField};
 
 const HUD_H: f32 = 56.0;
-const CELL_MIN: f32 = 10.0;
-const CELL_MAX: f32 = 56.0;
+const CELL_MIN: f32 = 6.0;
+const CELL_MAX: f32 = 100.0;
 const AUTOSAVE_SECS: f32 = 300.0;
 
 enum Scene {
@@ -62,7 +62,7 @@ impl Sounds {
         if !self.muted {
             play_sound(
                 sound,
-                PlaySoundParams { looped: false, volume: 0.7 },
+                PlaySoundParams { looped: false, volume: 0.9 },
             );
         }
     }
@@ -152,23 +152,30 @@ impl CreateForm {
     }
 }
 
+/// Keeps the board on screen. When it is larger than the viewport its edges are
+/// pinned with a small slack; when it fits, it may slide but never leave the
+/// visible area. Working in origin (board top-left) space lets the cursor-anchored
+/// zoom actually move the camera instead of fighting a forced center lock.
 fn clamp_cam(cam: Vec2, board: &Board, cell: f32) -> Vec2 {
     let sw = screen_width();
     let sh = screen_height();
     let bw = board.width() as f32 * cell;
     let bh = board.height() as f32 * cell;
-    let margin = 120.0;
-    let cx = if bw + margin * 2.0 <= sw {
-        bw / 2.0
+    let slack = 40.0;
+    let top = HUD_H;
+    let mut ox = sw / 2.0 - cam.x;
+    let mut oy = sh / 2.0 - cam.y;
+    ox = if bw + 2.0 * slack >= sw {
+        ox.clamp(sw - bw - slack, slack)
     } else {
-        cam.x.clamp(sw / 2.0 - margin, bw + margin - sw / 2.0)
+        ox.clamp(slack, sw - slack - bw)
     };
-    let cy = if bh + margin * 2.0 + HUD_H <= sh {
-        bh / 2.0
+    oy = if bh + 2.0 * slack >= sh - top {
+        oy.clamp(sh - bh - slack, top + slack)
     } else {
-        cam.y.clamp(HUD_H + sh / 2.0 - margin, bh + margin - sh / 2.0)
+        oy.clamp(top + slack, sh - slack - bh)
     };
-    vec2(cx, cy)
+    vec2(sw / 2.0 - ox, sh / 2.0 - oy)
 }
 
 fn origin(cam: Vec2) -> Vec2 {
@@ -526,7 +533,7 @@ async fn main() {
                 if active {
                     let wheel = mouse_wheel().1;
                     if wheel != 0.0 {
-                        g.target_cell = (g.target_cell * (1.15f32).powf(wheel)).clamp(CELL_MIN, CELL_MAX);
+                        g.target_cell = (g.target_cell * (1.2f32).powf(wheel)).clamp(CELL_MIN, CELL_MAX);
                     }
                     if is_mouse_button_pressed(MouseButton::Middle) {
                         g.pan_grab = Some(ui::mouse());
@@ -561,12 +568,13 @@ async fn main() {
                     let m = ui::mouse();
                     let center = vec2(screen_width() / 2.0, screen_height() / 2.0);
                     let old = g.cell;
-                    let k = 1.0 - (-dt * 14.0).exp();
+                    let k = 1.0 - (-dt * 16.0).exp();
                     g.cell = old + (g.target_cell - old) * k;
                     if m.y > HUD_H {
-                        let scale = g.cell / old;
+                        // world px under the cursor before this frame's scaling
                         let world_under_cursor = m - center + g.cam;
-                        g.cam = scale * world_under_cursor - (m - center);
+                        // keep that exact world point under the cursor afterwards
+                        g.cam = (g.cell / old) * world_under_cursor - (m - center);
                     }
                 }
                 g.cam = clamp_cam(g.cam, &g.board, g.cell);
@@ -745,6 +753,13 @@ async fn main() {
                     vec2(16.0, screen_height() - 12.0),
                     13.0,
                     ui::COL_TEXT_DIM,
+                );
+                let sound_label = if sounds.muted { "sound off" } else { "sound on" };
+                ui::txt(
+                    sound_label,
+                    vec2(screen_width() - 268.0, 30.0),
+                    14.0,
+                    if sounds.muted { ui::COL_TEXT_DIM } else { ui::COL_ACCENT },
                 );
                 let mut exit_requested = ui::button(Rect::new(screen_width() - 136.0, 10.0, 120.0, 36.0), "Menu", 16.0, true)
                     || is_key_pressed(KeyCode::Escape);

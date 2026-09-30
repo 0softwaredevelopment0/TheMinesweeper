@@ -239,15 +239,22 @@ impl Board {
         opened
     }
 
-    /// Left click. Revealing a mine defuses it and burns an attempt (if limited);
-    /// when attempts run out the board is lost. Safe cells flood-fill on zeros.
+    /// Left click. Flags are just markers: LMB opens flagged cells too (a flagged
+    /// cell is always safe anyway — flagging a mine defuses it on the spot).
+    /// Revealing a mine defuses it and burns an attempt (if limited); when attempts
+    /// run out the board is lost. Safe cells flood-fill on zeros.
     pub fn reveal(&mut self, x: u32, y: u32) {
         if self.status != Status::Active || !self.in_bounds(x, y) {
             return;
         }
         let i = self.idx(x, y);
-        if self.revealed[i] || self.flagged[i] {
+        if self.revealed[i] {
             return;
+        }
+        if self.flagged[i] {
+            // LMB overrules the marker: the cell opens and frees the flag slot.
+            self.flagged[i] = false;
+            self.flags_used -= 1;
         }
         if self.mines[i] {
             if let Some(a) = self.attempts_left.as_mut() {
@@ -330,11 +337,12 @@ impl Board {
         }
     }
 
-    /// Won when every mine is either defused by a click or covered by a flag.
-    /// (Flags on non-mine cells don't block the win.)
+    /// Classic win: every SAFE cell is revealed. Mines may stay hidden or defused —
+    /// they don't have to be touched. This makes unlimited permanent flags harmless:
+    /// you cannot win by blanket-flagging, only by actually opening the field.
     fn check_win(&self) -> bool {
         for i in 0..self.mines.len() {
-            if self.mines[i] && !(self.defused[i] || self.flagged[i]) {
+            if !self.mines[i] && !self.revealed[i] {
                 return false;
             }
         }
@@ -516,46 +524,53 @@ mod tests {
     }
 
     #[test]
-    fn win_when_all_mines_defused_or_correctly_flagged() {
+    fn classic_win_when_all_safe_cells_revealed() {
         let mut b = Board::new_empty_cells(3, 3);
         b.mines.fill(false);
-        b.mines[0] = true;
-        b.mines[1] = true;
-        b.mines[2] = true;
-        // One defused, two flagged.
-        b.attempts_left = Some(5);
-        b.def.attempts_limit = Some(5);
-        b.reveal(0, 0);
+        b.mines[0] = true; // (0,0)
+        b.mines[8] = true; // (2,2)
+        // Flags (even correct ones) don't win anything on their own.
+        b.place_flag(0, 0); // mine -> defused instantly
         assert_eq!(b.status, Status::Active);
         b.place_flag(1, 0);
-        assert_eq!(b.status, Status::Active);
-        b.place_flag(2, 0);
-        assert_eq!(b.status, Status::Won);
+        assert_eq!(b.status, Status::Active, "flagging is not winning");
+        // Open the remaining safe cells.
+        for &(x, y) in &[(0u32, 2u32), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1)] {
+            b.reveal(x, y);
+        }
+        assert_eq!(b.status, Status::Won, "all safe cells open -> classic win");
+        assert_eq!(b.flags_used, 0, "opening a flagged cell frees its marker slot");
     }
 
     #[test]
-    fn flag_on_non_mine_does_not_block_win() {
+    fn lmb_opens_flagged_cells_flags_are_markers_only() {
         let mut b = Board::new_empty_cells(3, 3);
         b.mines.fill(false);
-        b.mines[4] = true;
-        b.place_flag(0, 0); // wrong flag on a safe cell
-        b.place_flag(1, 1); // correct flag on the mine
-        assert_eq!(b.status, Status::Won);
+        b.mines[8] = true;
+        b.place_flag(0, 0); // safe cell, permanent marker
+        assert!(b.flagged[0]);
+        b.reveal(0, 0); // LMB overrules the marker; the flood opens the rest
+        assert!(b.revealed[0]);
+        assert!(!b.flagged[0]);
+        assert_eq!(b.flags_used, 0);
+        assert_eq!(b.status, Status::Won, "on a 3x3 that flood was the last safe area");
     }
 
     #[test]
     fn chord_opens_neighbors_when_flags_match() {
-        let mut b = Board::new_empty_cells(4, 4);
+        let mut b = Board::new_empty_cells(5, 5);
         b.mines.fill(false);
-        b.mines[10] = true; // (2,2), neighbor of (1,1)
-        b.mines[15] = true; // (3,3), far away — keeps the game running
-        b.revealed[5] = true; // (1,1): after the flag-defuse its number is 0
+        b.mines[12] = true; // (2,2), neighbor of (1,1)
+        b.mines[18] = true; // (3,3) — walls the bottom-right corner off
+        b.mines[19] = true; // (3,4)
+        b.revealed[6] = true; // (1,1): after the flag-defuse its number is 0
         b.place_flag(2, 2); // flag on the mine -> instant defuse, not a flag
-        assert!(b.defused[10] && b.revealed[10]);
-        assert!(!b.flagged[10], "defused mines wear no flag marker");
+        assert!(b.defused[12] && b.revealed[12]);
+        assert!(!b.flagged[12], "defused mines wear no flag marker");
         assert!(b.chord(1, 1), "0 flags == 0 number -> chord opens the ring");
-        assert!(b.revealed[0] && b.revealed[2] && b.revealed[8] && b.revealed[9]);
-        assert_eq!(b.status, Status::Active, "distant mine keeps the game running");
+        assert!(b.revealed[0] && b.revealed[5] && b.revealed[10]);
+        assert!(!b.revealed[24], "(4,4) is walled off by its mined neighbors");
+        assert_eq!(b.status, Status::Active, "walled-off safe cells keep the game running");
     }
 
     #[test]
@@ -633,20 +648,14 @@ mod tests {
     }
 
     #[test]
-    fn cannot_reveal_flagged_or_revealed_cell() {
+    fn reveal_on_revealed_cell_is_noop() {
         let mut b = Board::new_empty_cells(3, 3);
         b.mines.fill(false);
         b.mines[0] = true;
-        b.flagged[0] = true;
-        b.flags_used = 1;
-        b.attempts_left = Some(1);
-        b.def.attempts_limit = Some(1);
-        b.reveal(0, 0);
-        assert_eq!(b.status, Status::Active, "flag protects from clicking a mine");
-        assert!(!b.defused[0]);
         b.revealed[4] = true;
         b.reveal(1, 1);
         assert!(b.revealed[4]);
+        assert_eq!(b.status, Status::Active);
     }
 
     #[test]
