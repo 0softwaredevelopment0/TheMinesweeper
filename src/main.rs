@@ -297,7 +297,7 @@ async fn main() {
                 let sw = screen_width();
                 let sh = screen_height();
                 let pw = 640.0f32.min(sw - 40.0);
-                let ph = 700.0f32.min(sh - 40.0);
+                let ph = 760.0f32.min(sh - 40.0);
                 let p = Rect::new((sw - pw) / 2.0, (sh - ph) / 2.0, pw, ph);
                 ui::panel(p, ui::COL_PANEL);
                 ui::txt("New field", vec2(p.x + 28.0, p.y + 46.0), 28.0, ui::COL_TEXT);
@@ -326,7 +326,31 @@ async fn main() {
 
                 let lx = p.x + 28.0;
                 let fw = pw - 56.0;
-                let row0 = p.y + 104.0;
+
+                // Classic difficulty presets. Our mines are chance-based, so the
+                // percentages mirror the original densities (10/81, 40/256, 99/480).
+                let presets: [(&str, u32, u32, u32); 3] = [
+                    ("Beginner", 9, 9, 12),
+                    ("Intermediate", 16, 16, 16),
+                    ("Expert", 30, 16, 21),
+                ];
+                {
+                    let pw_btn = (fw - 16.0) / 3.0;
+                    for (i, (label, w, h, c)) in presets.into_iter().enumerate() {
+                        let r = Rect::new(lx + i as f32 * (pw_btn + 8.0), p.y + 104.0, pw_btn, 44.0);
+                        if ui::button(r, &format!("{label} {w}x{h} {c}%"), 13.0, true) {
+                            form.width.value = w.to_string();
+                            form.height.value = h.to_string();
+                            form.chance.value = c.to_string();
+                            form.time.value.clear();
+                            form.flags.value.clear();
+                            form.attempts.value = "1".to_string();
+                            form.error = None;
+                        }
+                    }
+                }
+
+                let row0 = p.y + 160.0;
                 let field_rects: [Rect; 7] = [
                     Rect::new(lx, row0 + 24.0, fw, 42.0),
                     Rect::new(lx, row0 + 98.0, fw / 2.0 - 8.0, 42.0),

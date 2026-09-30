@@ -29,6 +29,7 @@ Key rules encoded in `board.rs`:
       flag limits, win/lose edges, serialization roundtrip, SQLite roundtrip)
 - [x] Menu: field list with status badges, delete with confirmation, scroll
 - [x] Create form: name, width/height, mine chance %, time/flags/attempts limits
+- [x] Classic presets (Beginner 9×9·12%, Intermediate 16×16·16%, Expert 30×16·21%)
 - [x] Game scene: grid rendering, LMB reveal, RMB flag, HUD (time/flags/attempts/
       defused counter), finish overlays with reason
 - [x] Portable SQLite storage next to the exe; save on every action + 5 min autosave
@@ -45,7 +46,6 @@ Key rules encoded in `board.rs`:
 
 ### M-B — Persistence & UX upgrades
 - [ ] Best-time / stats per field definition (wins, losses, best time)
-- [ ] Preset difficulties (Beginner/Intermediate/Expert) in the create form
 - [ ] Export/import a field as a file; DB backup on version upgrades
 - [ ] Russian/English UI toggle (strings are already centralized enough to split)
 

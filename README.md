@@ -9,6 +9,8 @@ file (`minesweeper.db`), so the game is fully portable.
 - A field is created with custom parameters: width/height (2–500 each), per-cell mine
   chance (1–99%, placed independently — there is **no safe first click**), and optional
   limits: time, flags, attempts (lives; default 1, 0/empty = unlimited).
+- Classic presets prefill the form with equivalent densities: Beginner 9×9 · 12%,
+  Intermediate 16×16 · 16%, Expert 30×16 · 21%.
 - LMB opens a cell (number = active mines in the 8 neighbors), RMB toggles a flag.
 - Clicking a mine **defuses** it: the cell becomes visible and harmless and burns one
   attempt (if limited). Out of attempts, or out of time — the field is lost and is
