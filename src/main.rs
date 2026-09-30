@@ -47,7 +47,7 @@ impl CreateForm {
             name: ui::TextField::new(false, 32),
             width: ui::TextField::with("16", true, 3),
             height: ui::TextField::with("16", true, 3),
-            chance: ui::TextField::with("10", true, 2),
+            chance: ui::TextField::with_dec("10", 5),
             time: ui::TextField::new(true, 7),
             flags: ui::TextField::new(true, 5),
             attempts: ui::TextField::with("1", true, 4),
@@ -74,9 +74,9 @@ impl CreateForm {
         if !(2..=500).contains(&width) || !(2..=500).contains(&height) {
             return Err("Field size: 2 to 500 per side".into());
         }
-        let chance_pct = self.chance.parse_u32().ok_or("Mine chance: enter a percentage from 1 to 99")?;
-        if !(1..=99).contains(&chance_pct) {
-            return Err("Mine chance: 1 to 99%".into());
+        let chance_pct = self.chance.parse_f32().ok_or("Mine chance: enter a number from 0.1 to 99")?;
+        if !(0.1..=99.0).contains(&chance_pct) {
+            return Err("Mine chance: 0.1 to 99%".into());
         }
         let time = if self.time.value.trim().is_empty() {
             None
@@ -105,7 +105,7 @@ impl CreateForm {
         Ok(FieldDef {
             width,
             height,
-            mine_chance: chance_pct as f32 / 100.0,
+            mine_chance: chance_pct / 100.0,
             time_limit_secs: time,
             flag_limit: flags,
             attempts_limit: attempts,
@@ -312,8 +312,8 @@ async fn main() {
                 {
                     let fwc = form.width.parse_u32().unwrap_or(16);
                     let fhc = form.height.parse_u32().unwrap_or(16);
-                    let fpc = form.chance.parse_u32().unwrap_or(10);
-                    let expected = (fwc as u64 * fhc as u64 * fpc as u64 + 50) / 100;
+                    let fpc = form.chance.parse_f32().unwrap_or(10.0);
+                    let expected = (fwc as f64 * fhc as f64 * fpc as f64 / 100.0).round() as u64;
                     ui::txt(
                         &format!(
                             "expect ~{expected} mines on {fwc}x{fhc} — the fewer mines, the more one click opens"
@@ -364,7 +364,7 @@ async fn main() {
                     "Name",
                     "Width (2–500)",
                     "Height (2–500)",
-                    "Mine chance, % (1–99)",
+                    "Mine chance, % (0.1–99)",
                     "Time, sec",
                     "Flags",
                     "Attempts",
@@ -604,8 +604,14 @@ async fn main() {
                 // Board input.
                 if active {
                     if let Some((x, y)) = hover_cell {
+                        let ci = (y * bw + x) as usize;
                         if is_mouse_button_pressed(MouseButton::Left) {
-                            g.board.reveal(x, y);
+                            if g.board.revealed[ci] {
+                                // Chording: click a satisfied number to open its neighbors.
+                                g.board.chord(x, y);
+                            } else {
+                                g.board.reveal(x, y);
+                            }
                             db::save_board(&conn, g.id, &g.board);
                             g.autosave_accum = 0.0;
                         } else if is_mouse_button_pressed(MouseButton::Right) {
@@ -648,7 +654,7 @@ async fn main() {
                     ui::COL_TEXT,
                 );
                 ui::txt(
-                    "LMB - reveal · RMB - flag · wheel - zoom · MMB/WASD - pan",
+                    "LMB - reveal · LMB on number - chord · RMB - flag · wheel - zoom · MMB/WASD - pan",
                     vec2(16.0, screen_height() - 12.0),
                     13.0,
                     ui::COL_TEXT_DIM,

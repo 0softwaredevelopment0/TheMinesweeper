@@ -179,6 +179,66 @@ impl Board {
         n
     }
 
+    /// Number of flagged cells among the 8 neighbors.
+    fn flagged_neighbors(&self, x: u32, y: u32) -> u32 {
+        let mut n = 0u32;
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if nx < 0 || ny < 0 {
+                    continue;
+                }
+                let (nx, ny) = (nx as u32, ny as u32);
+                if self.in_bounds(nx, ny) && self.flagged[self.idx(nx, ny)] {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// Classic chording: a click on an already revealed numbered cell opens every
+    /// hidden unflagged neighbor, but only when the flag count equals the number.
+    /// Wrong flags mean the chord hits mines — they get defused and burn attempts,
+    /// exactly like direct clicks. Returns true if anything was opened.
+    pub fn chord(&mut self, x: u32, y: u32) -> bool {
+        if self.status != Status::Active || !self.in_bounds(x, y) {
+            return false;
+        }
+        let i = self.idx(x, y);
+        if !self.revealed[i] || self.mines[i] {
+            return false;
+        }
+        if self.flagged_neighbors(x, y) != self.adjacent_active_mines(x, y) as u32 {
+            return false;
+        }
+        let mut opened = false;
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if nx < 0 || ny < 0 {
+                    continue;
+                }
+                let (nx, ny) = (nx as u32, ny as u32);
+                if !self.in_bounds(nx, ny) {
+                    continue;
+                }
+                let j = self.idx(nx, ny);
+                if !self.revealed[j] && !self.flagged[j] {
+                    self.reveal(nx, ny);
+                    opened = true;
+                }
+            }
+        }
+        opened
+    }
+
     /// Left click. Revealing a mine defuses it and burns an attempt (if limited);
     /// when attempts run out the board is lost. Safe cells flood-fill on zeros.
     pub fn reveal(&mut self, x: u32, y: u32) {
@@ -205,8 +265,7 @@ impl Board {
         self.refresh_status();
     }
 
-    fn flood_reveal(&mut self, x: u32, y: u32) {
-        let mut stack = vec![(x, y)];
+    fn flood_reveal(&mut self, x: u32, y: u32) {        let mut stack = vec![(x, y)];
         while let Some((cx, cy)) = stack.pop() {
             if !self.in_bounds(cx, cy) {
                 continue;
@@ -476,6 +535,63 @@ mod tests {
         b.toggle_flag(0, 0); // wrong flag on a safe cell
         b.toggle_flag(1, 1); // correct flag on the mine
         assert_eq!(b.status, Status::Won);
+    }
+
+    #[test]
+    fn chord_opens_neighbors_when_flags_match() {
+        let mut b = Board::new_empty_cells(4, 4);
+        b.mines.fill(false);
+        b.mines[10] = true; // (2,2), neighbor of (1,1)
+        b.mines[15] = true; // (3,3), far away — keeps the game running
+        b.revealed[5] = true; // (1,1) shows 1
+        b.toggle_flag(2, 2);
+        assert!(b.chord(1, 1));
+        assert!(b.revealed[0] && b.revealed[2] && b.revealed[8] && b.revealed[9]);
+        assert!(b.flagged[10], "flagged mine must not be opened by its own chord");
+        assert_eq!(b.status, Status::Active, "distant mine keeps the game running");
+    }
+
+    #[test]
+    fn chord_requires_matching_flag_count() {
+        let mut b = Board::new_empty_cells(4, 4);
+        b.mines.fill(false);
+        b.mines[10] = true;
+        b.revealed[5] = true; // number is 1, no flags around
+        assert!(!b.chord(1, 1));
+        assert!(!b.revealed[0]);
+        assert!(!b.chord(0, 0), "chord on a hidden cell does nothing");
+    }
+
+    #[test]
+    fn chord_with_wrong_flag_hits_the_mine() {
+        let mut b = Board::new_empty_cells(4, 4);
+        b.mines.fill(false);
+        b.mines[2] = true; // (2,0), neighbor of (1,1)
+        b.mines[15] = true; // (3,3), far away
+        b.def.attempts_limit = Some(2);
+        b.attempts_left = Some(2);
+        b.revealed[5] = true; // (1,1) shows 1
+        b.toggle_flag(0, 0); // flag elsewhere: flags == 1 == number -> chord fires
+        assert!(b.chord(1, 1));
+        assert!(b.defused[2], "the unflagged mine must be defused by the chord");
+        assert_eq!(b.attempts_left, Some(1));
+        assert_eq!(b.status, Status::Active);
+    }
+
+    #[test]
+    fn chord_ignores_defused_mines_in_the_number() {
+        let mut b = Board::new_empty_cells(4, 4);
+        b.mines.fill(false);
+        b.mines[10] = true; // (2,2)
+        b.mines[15] = true;
+        b.revealed[5] = true;
+        b.defused[10] = true; // defused mine: number around (1,1) is now 0
+        b.toggle_flag(2, 2); // one flag around -> 1 != 0 -> no chord
+        assert!(!b.chord(1, 1));
+        assert!(!b.revealed[0]);
+        b.toggle_flag(2, 2); // flag removed -> 0 == 0 -> chord opens
+        assert!(b.chord(1, 1));
+        assert!(b.revealed[0]);
     }
 
     #[test]

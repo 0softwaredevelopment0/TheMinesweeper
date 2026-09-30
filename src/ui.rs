@@ -130,20 +130,32 @@ pub fn danger_button(rect: Rect, label: &str, size: f32, enabled: bool) -> bool 
 pub struct TextField {
     pub value: String,
     pub numeric: bool,
+    /// Numeric fields additionally accept a single '.' when this is set.
+    pub decimal: bool,
     pub max_len: usize,
 }
 
 impl TextField {
     pub fn new(numeric: bool, max_len: usize) -> Self {
-        TextField { value: String::new(), numeric, max_len }
+        TextField { value: String::new(), numeric, decimal: false, max_len }
     }
 
     pub fn with(value: &str, numeric: bool, max_len: usize) -> Self {
-        TextField { value: value.to_string(), numeric, max_len }
+        TextField { value: value.to_string(), numeric, decimal: false, max_len }
+    }
+
+    /// Numeric field that accepts fractional input like "12.5".
+    pub fn with_dec(value: &str, max_len: usize) -> Self {
+        TextField { value: value.to_string(), numeric: true, decimal: true, max_len }
     }
 
     pub fn parse_u32(&self) -> Option<u32> {
         self.value.trim().parse::<u32>().ok()
+    }
+
+    pub fn parse_f32(&self) -> Option<f32> {
+        let v: f32 = self.value.trim().parse().ok()?;
+        v.is_finite().then_some(v)
     }
 }
 
@@ -169,7 +181,8 @@ pub fn handle_typing(field: &mut TextField) {
         if ch.is_control() {
             continue;
         }
-        if field.numeric && !ch.is_ascii_digit() {
+        let dot_ok = field.decimal && ch == '.' && !field.value.contains('.');
+        if field.numeric && !ch.is_ascii_digit() && !dot_ok {
             continue;
         }
         if field.value.chars().count() < field.max_len {
