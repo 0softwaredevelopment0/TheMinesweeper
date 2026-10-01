@@ -329,11 +329,16 @@ impl Board {
         }
     }
 
-    /// Win when every mine is either flagged (blind marker) or defused (stepped
-    /// on). Safe cells do not have to be opened.
+    /// Win when BOTH hold: every mine is flagged or defused, AND every safe cell
+    /// is revealed. Blind blanket-flagging alone can no longer win — you still
+    /// have to actually clear the field.
     fn check_win(&self) -> bool {
         for i in 0..self.mines.len() {
-            if self.mines[i] && !(self.flagged[i] || self.defused[i]) {
+            if self.mines[i] {
+                if !(self.flagged[i] || self.defused[i]) {
+                    return false;
+                }
+            } else if !self.revealed[i] {
                 return false;
             }
         }
@@ -515,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn win_when_all_mines_flagged_or_defused() {
+    fn win_requires_handled_mines_and_open_safe_cells() {
         let mut b = Board::new_empty_cells(3, 3);
         b.mines.fill(false);
         b.mines[0] = true; // (0,0)
@@ -525,9 +530,13 @@ mod tests {
         b.reveal(2, 2); // steps on the mine -> defused (free burn: unlimited)
         assert!(b.defused[8]);
         assert_eq!(b.status, Status::Active, "one mine is still unhandled");
-        b.place_flag(0, 0); // flag the last mine -> every mine handled -> win
+        b.place_flag(0, 0); // every mine handled now...
         assert!(b.flagged[0]);
-        assert_eq!(b.status, Status::Won);
+        assert_eq!(b.status, Status::Active, "...but safe cells are still hidden");
+        for &(x, y) in &[(0u32, 1u32), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)] {
+            b.reveal(x, y);
+        }
+        assert_eq!(b.status, Status::Won, "mines handled + safe cells open -> win");
     }
 
     #[test]
@@ -540,7 +549,7 @@ mod tests {
         assert!(!b.defused[4], "the flag never defuses anything");
         assert!(!b.revealed[4], "the flag never reveals the mine");
         assert_eq!(b.adjacent_active_mines(0, 0), 1, "numbers stay untouched");
-        assert_eq!(b.status, Status::Won, "the only mine is flagged -> win");
+        assert_eq!(b.status, Status::Active, "marking alone is not a win");
     }
 
     #[test]
@@ -656,17 +665,17 @@ mod tests {
     }
 
     #[test]
-    fn flagging_all_mines_wins_even_blind() {
+    fn flagging_all_mines_alone_does_not_win() {
         let mut b = Board::new_empty_cells(4, 4);
         b.mines.fill(false);
         b.mines[10] = true; // (2,2)
         b.mines[15] = true;
         b.place_flag(2, 2); // blind flag on a mine
         assert_eq!(b.status, Status::Active, "one mine is still unhandled");
-        b.place_flag(3, 3); // the last mine -> win
+        b.place_flag(3, 3); // every mine flagged now...
         assert!(b.flagged[10] && b.flagged[15]);
         assert!(!b.defused[10] && !b.defused[15], "no defuse happened, pure marking");
-        assert_eq!(b.status, Status::Won);
+        assert_eq!(b.status, Status::Active, "...but safe cells are still hidden -> no win");
     }
 
     #[test]

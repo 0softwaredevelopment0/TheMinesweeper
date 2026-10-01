@@ -4,7 +4,7 @@ mod ui;
 
 use board::{Board, FieldDef, LossReason, Rng, Status};
 use db::FieldRow;
-use macroquad::audio::{load_sound_from_bytes, play_sound, PlaySoundParams, Sound};
+use rodio::Source;
 use macroquad::prelude::*;
 use ui::{draw_rectangle_lines_ex, draw_rectangle_rec, TextField};
 
@@ -31,39 +31,43 @@ struct GameView {
     target_cell: f32,
 }
 
-/// CC0 sounds by Kenney (kenney.nl), bundled via include_bytes.
+/// CC0 sounds by Kenney (kenney.nl), bundled via include_bytes and played
+/// through rodio — its cpal/WASAPI output is far more reliable than macroquad's
+/// quad-snd backend, which stayed silent on some machines. The stream is kept
+/// alive for the whole session; without an audio device the game runs silent.
 struct Sounds {
-    click: Sound,
-    flag: Sound,
-    explosion: Sound,
-    win: Sound,
-    lose: Sound,
+    _stream: Option<rodio::MixerDeviceSink>,
     muted: bool,
 }
 
+const SND_CLICK: &[u8] = include_bytes!("../assets/sounds/click.ogg");
+const SND_FLAG: &[u8] = include_bytes!("../assets/sounds/flag.ogg");
+const SND_EXPLOSION: &[u8] = include_bytes!("../assets/sounds/explosion.ogg");
+const SND_WIN: &[u8] = include_bytes!("../assets/sounds/win.ogg");
+const SND_LOSE: &[u8] = include_bytes!("../assets/sounds/lose.ogg");
+
 impl Sounds {
-    async fn load() -> Self {
-        let load = |bytes: &'static [u8]| async move {
-            load_sound_from_bytes(bytes)
-                .await
-                .expect("failed to decode a bundled sound")
+    fn init() -> Self {
+        let stream = match rodio::DeviceSinkBuilder::open_default_sink() {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("audio output unavailable, game will be silent: {e}");
+                return Sounds { _stream: None, muted: false };
+            }
         };
-        Sounds {
-            click: load(include_bytes!("../assets/sounds/click.ogg")).await,
-            flag: load(include_bytes!("../assets/sounds/flag.ogg")).await,
-            explosion: load(include_bytes!("../assets/sounds/explosion.ogg")).await,
-            win: load(include_bytes!("../assets/sounds/win.ogg")).await,
-            lose: load(include_bytes!("../assets/sounds/lose.ogg")).await,
-            muted: false,
-        }
+        eprintln!("audio output ready");
+        Sounds { _stream: Some(stream), muted: false }
     }
 
-    fn play(&self, sound: &Sound) {
-        if !self.muted {
-            play_sound(
-                sound,
-                PlaySoundParams { looped: false, volume: 0.9 },
-            );
+    fn play(&self, bytes: &'static [u8]) {
+        if self.muted {
+            return;
+        }
+        if let Some(stream) = &self._stream {
+            match rodio::Decoder::new(std::io::Cursor::new(bytes)) {
+                Ok(source) => stream.mixer().add(source.amplify(0.9)),
+                Err(e) => eprintln!("sound decode failed: {e}"),
+            }
         }
     }
 }
@@ -219,7 +223,7 @@ fn window_conf() -> Conf {
 async fn main() {
     ui::init_font();
     let conn = db::open(&db::db_path());
-    let mut sounds = Sounds::load().await;
+    let mut sounds = Sounds::init();
 
     let mut scene = Scene::Menu;
     let mut rows: Vec<FieldRow> = db::list_fields(&conn);
@@ -698,14 +702,14 @@ async fn main() {
                                 let defused_now = g.board.defused.iter().filter(|&&d| d).count();
                                 if g.board.status != status_before {
                                     if g.board.status == Status::Won {
-                                        sounds.play(&sounds.win);
+                                        sounds.play(SND_WIN);
                                     } else {
-                                        sounds.play(&sounds.lose);
+                                        sounds.play(SND_LOSE);
                                     }
                                 } else if defused_now > defused_before {
-                                    sounds.play(&sounds.explosion);
+                                    sounds.play(SND_EXPLOSION);
                                 } else {
-                                    sounds.play(&sounds.click);
+                                    sounds.play(SND_CLICK);
                                 }
                             }
                         } else if is_mouse_button_pressed(MouseButton::Right) {
@@ -715,12 +719,12 @@ async fn main() {
                             // Flagging the last mine wins the game — jingle first then.
                             if g.board.status != status_before {
                                 if g.board.status == Status::Won {
-                                    sounds.play(&sounds.win);
+                                    sounds.play(SND_WIN);
                                 } else {
-                                    sounds.play(&sounds.lose);
+                                    sounds.play(SND_LOSE);
                                 }
                             } else {
-                                sounds.play(&sounds.flag);
+                                sounds.play(SND_FLAG);
                             }
                         }
                     }
@@ -780,24 +784,37 @@ async fn main() {
                     draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
                     let p = Rect::new(sw / 2.0 - 280.0, sh / 2.0 - 170.0, 560.0, 340.0);
                     ui::panel(p, ui::COL_PANEL);
+                    // Explicit win reason: how the mines were handled.
+                    let flagged_mines = (0..g.board.mines.len())
+                        .filter(|&i| g.board.mines[i] && g.board.flagged[i])
+                        .count();
+                    let defused_mines = (0..g.board.mines.len())
+                        .filter(|&i| g.board.mines[i] && g.board.defused[i])
+                        .count();
                     let (title, color, reason) = match g.board.status {
                         Status::Won => (
                             "YOU WIN",
                             ui::COL_GOLD,
-                            "Every mine is defused or flagged",
+                            if defused_mines == 0 {
+                                format!("You flagged all {flagged_mines} mines")
+                            } else if flagged_mines == 0 {
+                                format!("You defused all {defused_mines} mines")
+                            } else {
+                                format!("Defused {defused_mines} + flagged {flagged_mines} = all mines handled")
+                            },
                         ),
                         Status::Lost => (
                             "YOU LOSE",
                             ui::COL_DANGER,
                             match g.board.loss_reason {
-                                Some(LossReason::TimeUp) => "Time is up",
-                                _ => "Out of attempts",
+                                Some(LossReason::TimeUp) => "Time is up".to_string(),
+                                _ => "Out of attempts".to_string(),
                             },
                         ),
                         Status::Active => unreachable!(),
                     };
                     ui::txt_centered(title, vec2(sw / 2.0, p.y + 90.0), 42.0, color);
-                    ui::txt_centered(reason, vec2(sw / 2.0, p.y + 140.0), 16.0, ui::COL_TEXT_DIM);
+                    ui::txt_centered(&reason, vec2(sw / 2.0, p.y + 140.0), 16.0, ui::COL_TEXT_DIM);
                     ui::txt_centered(
                         &format!("Mines defused: {defused_cnt} of {mines_total}"),
                         vec2(sw / 2.0, p.y + 172.0),
