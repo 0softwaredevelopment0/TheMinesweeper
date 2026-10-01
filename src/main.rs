@@ -675,6 +675,47 @@ async fn main() {
                     }
                 }
 
+                // Chess-style numeric coordinates along all four board edges.
+                // Font auto-shrinks for multi-digit labels on small cells.
+                {
+                    let bw_px = bw as f32 * cell;
+                    let bh_px = bh as f32 * cell;
+                    let edge_label = |n: u32| -> (String, f32, f32) {
+                        let s = n.to_string();
+                        let mut size = (cell * 0.45).clamp(7.0, 22.0);
+                        let mut w = ui::txt_w(&s, size);
+                        if w > cell * 0.92 {
+                            size = (size * cell * 0.92 / w).max(6.0);
+                            w = ui::txt_w(&s, size);
+                        }
+                        (s, size, w)
+                    };
+                    for x in x0..x1 {
+                        let (s, size, _) = edge_label(x + 1);
+                        let cx = o.x + x as f32 * cell + cell / 2.0;
+                        let top_cy = o.y - 4.0 - size * 0.5;
+                        if top_cy > HUD_H {
+                            ui::txt_centered(&s, vec2(cx, top_cy), size, ui::COL_TEXT_DIM);
+                        }
+                        let bot_cy = o.y + bh_px + 4.0 + size * 0.5;
+                        if bot_cy < screen_height() {
+                            ui::txt_centered(&s, vec2(cx, bot_cy), size, ui::COL_TEXT_DIM);
+                        }
+                    }
+                    for y in y0..y1 {
+                        let (s, size, w) = edge_label(y + 1);
+                        let baseline = o.y + y as f32 * cell + cell / 2.0 + size * 0.35;
+                        let lx = o.x - 5.0 - w;
+                        if lx > 0.0 {
+                            ui::txt(&s, vec2(lx, baseline), size, ui::COL_TEXT_DIM);
+                        }
+                        let rx = o.x + bw_px + 5.0;
+                        if rx + w < screen_width() {
+                            ui::txt(&s, vec2(rx, baseline), size, ui::COL_TEXT_DIM);
+                        }
+                    }
+                }
+
                 // Board input.
                 if is_key_pressed(KeyCode::M) {
                     sounds.muted = !sounds.muted;
