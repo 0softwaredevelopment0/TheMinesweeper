@@ -90,7 +90,7 @@ impl CreateForm {
             name: ui::TextField::new(false, 32),
             width: ui::TextField::with("16", true, 3),
             height: ui::TextField::with("16", true, 3),
-            chance: ui::TextField::with_dec("10", 5),
+            chance: ui::TextField::with_dec("10", 8),
             time: ui::TextField::new(true, 7),
             flags: ui::TextField::new(true, 5),
             attempts: ui::TextField::with("1", true, 4),
@@ -117,9 +117,9 @@ impl CreateForm {
         if !(2..=500).contains(&width) || !(2..=500).contains(&height) {
             return Err("Field size: 2 to 500 per side".into());
         }
-        let chance_pct = self.chance.parse_f32().ok_or("Mine chance: enter a number from 0.1 to 99")?;
-        if !(0.1..=99.0).contains(&chance_pct) {
-            return Err("Mine chance: 0.1 to 99%".into());
+        let chance_pct = self.chance.parse_f32().ok_or("Mine chance: enter a number (decimals allowed)")?;
+        if !(chance_pct > 0.0 && chance_pct < 100.0) {
+            return Err("Mine chance: greater than 0 and less than 100 (0% and 100% are not allowed)".into());
         }
         let time = if self.time.value.trim().is_empty() {
             None
@@ -423,7 +423,7 @@ async fn main() {
                     "Name",
                     "Width (2–500)",
                     "Height (2–500)",
-                    "Mine chance, % (0.1–99)",
+                    "Mine chance, % (any fraction, 0 < p < 100)",
                     "Time, sec",
                     "Flags",
                     "Attempts",
@@ -470,7 +470,7 @@ async fn main() {
                 let by = p.y + ph - 64.0;
                 if ui::button(Rect::new(p.x + 28.0, by, 220.0, 46.0), "Create field", 17.0, true) {
                     match form.build_def() {
-                        Ok(def) => match Board::generate_with_mines(def, &mut Rng::from_system_time(), 16) {
+                        Ok(def) => match Board::generate_with_mines(def, &mut Rng::from_system_time(), 64) {
                             Some(b) => {
                                 let name = if form.name.value.trim().is_empty() {
                                     format!("Field {}", rows.len() + 1)
@@ -752,15 +752,20 @@ async fn main() {
                     (Some(a), Some(l)) => format!("Attempts {a}/{l}"),
                     _ => "Attempts inf".into(),
                 };
-                ui::txt(&format!("Time {time_str}"), vec2(16.0, 34.0), 16.0, time_color);
-                ui::txt(&flags_str, vec2(190.0, 34.0), 16.0, ui::COL_TEXT);
-                ui::txt(&att_str, vec2(360.0, 34.0), 16.0, ui::COL_TEXT);
-                ui::txt(
-                    &format!("Mines defused {defused_cnt}/{mines_total}"),
-                    vec2(520.0, 34.0),
-                    16.0,
-                    ui::COL_TEXT,
-                );
+                // HUD segments flow left-to-right with measured widths, so long
+                // values (e.g. attempts 9999/9999) never overlap each other.
+                {
+                    let mut hx = 16.0;
+                    for (label, color) in [
+                        (format!("Time {time_str}"), time_color),
+                        (flags_str.clone(), ui::COL_TEXT),
+                        (att_str.clone(), ui::COL_TEXT),
+                        (format!("Defused {defused_cnt}/{mines_total}"), ui::COL_TEXT),
+                    ] {
+                        ui::txt(&label, vec2(hx, 34.0), 16.0, color);
+                        hx += ui::txt_w(&label, 16.0) + 28.0;
+                    }
+                }
                 ui::txt(
                     "LMB - reveal · LMB on number - chord · RMB - flag (again removes; flagged is click-locked) · wheel - zoom · MMB/WASD - pan · M - mute",
                     vec2(16.0, screen_height() - 12.0),
