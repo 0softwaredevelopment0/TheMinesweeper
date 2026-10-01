@@ -289,15 +289,21 @@ async fn main() {
                         ui::COL_TEXT_DIM,
                     );
 
-                    // Section tabs: Fields | Records.
+                    // Section tabs: Fields | Records. Both always clickable;
+                    // the active one is highlighted with the accent color.
                     let tab_y = 96.0;
-                    if ui::button(Rect::new(28.0, tab_y, 170.0, 40.0), "Fields", 16.0, !records_tab) {
-                        records_tab = false;
-                        menu_scroll = 0.0;
-                    }
-                    if ui::button(Rect::new(206.0, tab_y, 170.0, 40.0), "Records", 16.0, records_tab) {
-                        records_tab = true;
-                        menu_scroll = 0.0;
+                    for (i, (label, is_records)) in [("Fields", false), ("Records", true)].into_iter().enumerate() {
+                        let r = Rect::new(28.0 + i as f32 * 178.0, tab_y, 170.0, 40.0);
+                        let active = records_tab == is_records;
+                        draw_rectangle_rec(r, if active { ui::COL_ACCENT } else { ui::COL_BTN });
+                        draw_rectangle_lines_ex(r, 2.0, ui::COL_BORDER);
+                        ui::txt_centered(label, r.center(), 16.0, if active { Color::new(0.05, 0.08, 0.12, 1.0) } else { ui::COL_TEXT });
+                        if r.contains(ui::mouse()) && is_mouse_button_released(MouseButton::Left) {
+                            if !active {
+                                records_tab = is_records;
+                                menu_scroll = 0.0;
+                            }
+                        }
                     }
 
                     if ui::button(Rect::new(screen_width() - 268.0, 30.0, 240.0, 48.0), "+ New field", 18.0, !records_tab) {
