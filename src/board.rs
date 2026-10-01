@@ -106,20 +106,16 @@ impl Board {
     }
 
     #[allow(dead_code)]
-    /// Generates a field and guarantees at least one mine: retries up to
-    /// `max_attempts` times, and if every roll came up empty (chance too low
-    /// for the field size) converts one random safe cell into a mine. The bool
-    /// result reports whether that fallback happened, so the UI can warn.
-    pub fn generate_with_mines(def: FieldDef, rng: &mut Rng, max_attempts: u32) -> (Board, bool) {
-        for _ in 0..max_attempts {
-            let b = Board::generate(def.clone(), rng);
-            if b.mines.iter().any(|&m| m) {
-                return (b, false);
-            }
+    /// Generates the field exactly once (width x height, one chance roll per
+    /// cell). If the roll produced zero mines, one random safe cell is converted
+    /// into a mine so the field is always playable; the bool result reports
+    /// whether that fallback happened, so the UI can warn the player.
+    pub fn generate_with_mines(def: FieldDef, rng: &mut Rng) -> (Board, bool) {
+        let mut b = Board::generate(def, rng);
+        if b.mines.iter().any(|&m| m) {
+            return (b, false);
         }
-        // Every roll came up empty (chance too low for the field size):
-        // convert one random safe cell of the last roll into a mine.
-        let mut b = Board::generate(def.clone(), rng);
+        // Nothing rolled: convert one random safe cell into a mine.
         let safe: Vec<usize> = (0..b.mines.len()).filter(|&i| !b.mines[i]).collect();
         if let Some(&i) = safe.get(rng.next_range(0..safe.len() as u32) as usize) {
             b.mines[i] = true;
@@ -439,23 +435,23 @@ mod tests {
     #[test]
     fn generate_with_mines_always_yields_a_mine() {
         let mut rng = Rng::new(9);
-        // Normal chance: no fallback needed.
-        let (b, fallback) = Board::generate_with_mines(def(3, 3, 0.01, None, None), &mut rng, 1000);
+        // Normal chance: no fallback needed (25% on 9 cells -> ~2.25 mines).
+        let (b, fallback) = Board::generate_with_mines(def(3, 3, 0.25, None, None), &mut rng);
         assert!(!fallback);
         assert!(b.mines.iter().any(|&m| m));
         // Zero chance can never roll a mine -> fallback mine gets placed.
-        let (b, fallback) = Board::generate_with_mines(def(3, 3, 0.0, None, None), &mut rng, 5);
+        let (b, fallback) = Board::generate_with_mines(def(3, 3, 0.0, None, None), &mut rng);
         assert!(fallback);
         assert!(b.mines.iter().any(|&m| m), "fallback guarantees one mine");
     }
 
     #[test]
     fn hopeless_chance_places_exactly_one_fallback_mine() {
-        // 0.00001% on 9 cells: ~64 full field rolls are essentially guaranteed
+        // 0.00001% on 9 cells: the single generation is essentially guaranteed
         // to produce zero mines -> the fallback converts one random safe cell.
         let mut rng = Rng::new(42);
         let d = def(3, 3, 0.00001, None, None);
-        let (b, fallback) = Board::generate_with_mines(d, &mut rng, 64);
+        let (b, fallback) = Board::generate_with_mines(d, &mut rng);
         assert!(fallback, "this chance must end in the fallback");
         assert_eq!(
             b.mines.iter().filter(|&&m| m).count(),

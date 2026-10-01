@@ -475,8 +475,7 @@ async fn main() {
                 if ui::button(Rect::new(p.x + 28.0, by, 220.0, 46.0), "Create field", 17.0, true) {
                     match form.build_def() {
                         Ok(def) => {
-                            let (b, fallback_mine) =
-                                Board::generate_with_mines(def, &mut Rng::from_system_time(), 64);
+                            let (b, fallback_mine) = Board::generate_with_mines(def, &mut Rng::from_system_time());
                             let name = if form.name.value.trim().is_empty() {
                                 format!("Field {}", rows.len() + 1)
                             } else {
