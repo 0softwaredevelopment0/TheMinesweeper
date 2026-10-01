@@ -23,8 +23,13 @@ file (`minesweeper.db`), so the game is fully portable.
   burns one attempt (if limited). That is the only thing that moves the neighbor
   numbers down. Out of attempts, or out of time — the field is lost and is deleted
   after you leave it.
-- Win: every mine is either flagged or defused. Tip: with unlimited flags,
-  blanket-flagging technically wins — set a flag limit for a real challenge.
+- Win: every mine is either flagged or defused, AND every safe cell is revealed —
+  blanket-flagging or step-farming alone never wins.
+- **Records**: tick "count as record" in the create form — a WIN on such a field
+  saves a snapshot of the winning position plus time spent, attempts left and flags
+  used into the Records tab (main screen). The record view is read-only: pan with
+  WASD/arrows, zoom with the wheel (built for large fields); records can be deleted
+  with confirmation. Losses are never recorded.
 - Camera: mouse wheel zooms smoothly toward the cursor; middle mouse button / WASD
   pans; only visible cells render.
 - Sounds (CC0 by Kenney): reveal click, flag, explosion, win, lose. `M` toggles mute.

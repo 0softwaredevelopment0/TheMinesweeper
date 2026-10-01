@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "theminesweeper"
-version = "0.2.15-beta.1"
+version = "0.3.0-beta.1"
 dependencies = [
  "macroquad",
  "rodio",

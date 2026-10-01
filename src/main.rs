@@ -17,6 +17,15 @@ enum Scene {
     Menu,
     Create,
     Game,
+    RecordView,
+}
+
+/// Static view of a saved winning snapshot: pan (WASD/arrows), zoom, no play.
+struct RecordViewer {
+    board: Board,
+    cell: f32,
+    target_cell: f32,
+    cam: Vec2,
 }
 
 struct GameView {
@@ -32,6 +41,10 @@ struct GameView {
     /// Shown once when the field was created with a chance so low that zero
     /// mines rolled and the generator placed one fallback mine at random.
     zero_mine_warning: bool,
+    /// Whether wins on this field go into the Records tab.
+    is_record: bool,
+    /// Set once the win record has been written (one record per game).
+    record_saved: bool,
 }
 
 /// CC0 sounds by Kenney (kenney.nl), bundled via include_bytes and played
@@ -83,6 +96,8 @@ struct CreateForm {
     time: TextField,
     flags: TextField,
     attempts: TextField,
+    /// Wins on this field go into the Records tab.
+    is_record: bool,
     active: usize,
     error: Option<String>,
 }
@@ -97,6 +112,7 @@ impl CreateForm {
             time: ui::TextField::new(true, 7),
             flags: ui::TextField::new(true, 5),
             attempts: ui::TextField::with("1", true, 4),
+            is_record: false,
             active: 0,
             error: None,
         }
@@ -189,16 +205,15 @@ fn origin(cam: Vec2) -> Vec2 {
     vec2(screen_width() / 2.0 - cam.x, screen_height() / 2.0 - cam.y)
 }
 
-fn fmt_params_line(row: &FieldRow) -> String {
-    let d = &row.def;
-    let time = d.time_limit_secs.map_or_else(|| "∞".to_string(), ui::fmt_time);
-    let flags = d.flag_limit.map_or_else(|| "∞".to_string(), |f| f.to_string());
-    let attempts = d.attempts_limit.map_or_else(|| "∞".to_string(), |a| a.to_string());
+fn fmt_params_line(def: &FieldDef) -> String {
+    let time = def.time_limit_secs.map_or_else(|| "∞".to_string(), ui::fmt_time);
+    let flags = def.flag_limit.map_or_else(|| "∞".to_string(), |f| f.to_string());
+    let attempts = def.attempts_limit.map_or_else(|| "∞".to_string(), |a| a.to_string());
     format!(
         "{}x{} · mines {}% · time {} · flags {} · attempts {}",
-        d.width,
-        d.height,
-        (d.mine_chance * 100.0).round() as u32,
+        def.width,
+        def.height,
+        (def.mine_chance * 100.0).round() as u32,
         time,
         flags,
         attempts
@@ -230,10 +245,14 @@ async fn main() {
 
     let mut scene = Scene::Menu;
     let mut rows: Vec<FieldRow> = db::list_fields(&conn);
+    let mut records: Vec<db::RecordRow> = db::list_records(&conn);
+    let mut records_tab = false;
     let mut form = CreateForm::new();
     let mut game: Option<GameView> = None;
+    let mut record_viewer: Option<RecordViewer> = None;
     let mut menu_scroll: f32 = 0.0;
     let mut confirm_delete: Option<i64> = None;
+    let mut confirm_delete_record: Option<i64> = None;
 
     loop {
         clear_background(ui::COL_BG);
@@ -269,34 +288,108 @@ async fn main() {
                         14.0,
                         ui::COL_TEXT_DIM,
                     );
-                    if ui::button(Rect::new(screen_width() - 268.0, 30.0, 240.0, 48.0), "+ New field", 18.0, true) {
+
+                    // Section tabs: Fields | Records.
+                    let tab_y = 96.0;
+                    if ui::button(Rect::new(28.0, tab_y, 170.0, 40.0), "Fields", 16.0, !records_tab) {
+                        records_tab = false;
+                        menu_scroll = 0.0;
+                    }
+                    if ui::button(Rect::new(206.0, tab_y, 170.0, 40.0), "Records", 16.0, records_tab) {
+                        records_tab = true;
+                        menu_scroll = 0.0;
+                    }
+
+                    if ui::button(Rect::new(screen_width() - 268.0, 30.0, 240.0, 48.0), "+ New field", 18.0, !records_tab) {
                         form = CreateForm::new();
                         scene = Scene::Create;
                     }
 
-                    let list_w = 900.0f32.min(screen_width() - 40.0);
-                    let list_x = (screen_width() - list_w) / 2.0;
-                    let top = 110.0;
-                    let row_h = 92.0;
-                    let gap = 10.0;
+                    if records_tab {
+                        // ----- Records tab -----
+                        let list_w = 900.0f32.min(screen_width() - 40.0);
+                        let list_x = (screen_width() - list_w) / 2.0;
+                        let top = 150.0;
+                        let row_h = 104.0;
+                        let gap = 10.0;
+                        let visible = screen_height() - top - 20.0;
+                        let total_h = records.len() as f32 * (row_h + gap);
+                        let max_scroll = (total_h - visible).max(0.0);
+                        menu_scroll = (menu_scroll - ui::normalize_wheel(mouse_wheel().1) * 44.0).clamp(0.0, max_scroll);
 
-                    let visible = screen_height() - top - 20.0;
-                    let total_h = rows.len() as f32 * (row_h + gap);
-                    let max_scroll = (total_h - visible).max(0.0);
-                    menu_scroll = (menu_scroll - ui::normalize_wheel(mouse_wheel().1) * 60.0).clamp(0.0, max_scroll);
+                        if records.is_empty() {
+                            ui::txt_centered(
+                                "No records yet — win a field marked as record",
+                                vec2(screen_width() / 2.0, screen_height() / 2.0),
+                                20.0,
+                                ui::COL_TEXT_DIM,
+                            );
+                        }
+                        for (i, rec) in records.iter().enumerate() {
+                            let y = top + i as f32 * (row_h + gap) - menu_scroll;
+                            if y + row_h < top || y > screen_height() {
+                                continue;
+                            }
+                            let r = Rect::new(list_x, y, list_w, row_h);
+                            ui::panel(r, ui::COL_PANEL);
+                            ui::txt(&rec.name, vec2(r.x + 18.0, r.y + 32.0), 20.0, ui::COL_TEXT);
+                            ui::txt(&fmt_params_line(&rec.def), vec2(r.x + 18.0, r.y + 58.0), 14.0, ui::COL_TEXT_DIM);
+                            let stats = format!(
+                                "time {} · attempts {} · flags {}",
+                                ui::fmt_time(rec.time_played),
+                                rec.attempts_left.map_or_else(|| "inf".into(), |a| a.to_string()),
+                                rec.flags_used
+                            );
+                            ui::txt(&stats, vec2(r.x + 18.0, r.y + 80.0), 14.0, ui::COL_GOLD);
+                            ui::txt("RECORD", vec2(r.x + r.w - 250.0, r.y + 34.0), 14.0, ui::COL_GOLD);
+                            if ui::button(Rect::new(r.x + r.w - 250.0, r.y + 48.0, 118.0, 42.0), "View", 16.0, true) {
+                                if let Some(b) = db::load_record_board(&conn, rec.id) {
+                                    let fit = ((screen_width() - 160.0) / b.width() as f32)
+                                        .min((screen_height() - HUD_H - 160.0) / b.height() as f32);
+                                    let cell = fit.clamp(CELL_MIN, CELL_MAX);
+                                    let cam = clamp_cam(
+                                        vec2(b.width() as f32 * cell / 2.0, b.height() as f32 * cell / 2.0),
+                                        &b,
+                                        cell,
+                                    );
+                                    record_viewer = Some(RecordViewer {
+                                        board: b,
+                                        cell,
+                                        target_cell: cell,
+                                        cam,
+                                    });
+                                    scene = Scene::RecordView;
+                                }
+                            }
+                            if ui::danger_button(Rect::new(r.x + r.w - 120.0, r.y + 48.0, 100.0, 42.0), "Delete", 16.0, true) {
+                                confirm_delete_record = Some(rec.id);
+                            }
+                        }
+                    } else {
+                        // ----- Fields tab -----
+                        let list_w = 900.0f32.min(screen_width() - 40.0);
+                        let list_x = (screen_width() - list_w) / 2.0;
+                        let top = 150.0;
+                        let row_h = 92.0;
+                        let gap = 10.0;
 
-                    if rows.is_empty() {
-                        ui::txt_centered(
-                            "No fields yet — create your first one",
-                            vec2(screen_width() / 2.0, screen_height() / 2.0),
-                            20.0,
-                            ui::COL_TEXT_DIM,
-                        );
-                    }
+                        let visible = screen_height() - top - 20.0;
+                        let total_h = rows.len() as f32 * (row_h + gap);
+                        let max_scroll = (total_h - visible).max(0.0);
+                        menu_scroll = (menu_scroll - ui::normalize_wheel(mouse_wheel().1) * 44.0).clamp(0.0, max_scroll);
 
-                    let mut open_id: Option<i64> = None;
-                    let mut broken_id: Option<i64> = None;
-                    for (i, row) in rows.iter().enumerate() {
+                        if rows.is_empty() {
+                            ui::txt_centered(
+                                "No fields yet — create your first one",
+                                vec2(screen_width() / 2.0, screen_height() / 2.0),
+                                20.0,
+                                ui::COL_TEXT_DIM,
+                            );
+                        }
+
+                        let mut open_id: Option<i64> = None;
+                        let mut broken_id: Option<i64> = None;
+                        for (i, row) in rows.iter().enumerate() {
                         let y = top + i as f32 * (row_h + gap) - menu_scroll;
                         if y + row_h < top || y > screen_height() {
                             continue;
@@ -304,7 +397,7 @@ async fn main() {
                         let r = Rect::new(list_x, y, list_w, row_h);
                         ui::panel(r, ui::COL_PANEL);
                         ui::txt(&row.name, vec2(r.x + 18.0, r.y + 32.0), 20.0, ui::COL_TEXT);
-                        ui::txt(&fmt_params_line(row), vec2(r.x + 18.0, r.y + 58.0), 14.0, ui::COL_TEXT_DIM);
+                        ui::txt(&fmt_params_line(&row.def), vec2(r.x + 18.0, r.y + 58.0), 14.0, ui::COL_TEXT_DIM);
 
                         let (status_label, status_color) = match row.status {
                             Status::Active => ("in progress", ui::COL_OK),
@@ -331,6 +424,7 @@ async fn main() {
                     }
                     if let Some(id) = open_id {
                         if let Some(b) = db::load_board(&conn, id) {
+                            let is_rec = rows.iter().find(|r| r.id == id).map(|r| r.is_record).unwrap_or(false);
                             let fit = ((screen_width() - 120.0) / b.width() as f32)
                                 .min((screen_height() - HUD_H - 120.0) / b.height() as f32);
                             let cell = fit.clamp(CELL_MIN, CELL_MAX);
@@ -347,12 +441,43 @@ async fn main() {
                                 sec_accum: 0.0,
                                 autosave_accum: 0.0,
                                 session_elapsed: 0,
-                                    pan_grab: None,
-                                    target_cell: cell,
-                                    zero_mine_warning: false,
-                                });
-                                    scene = Scene::Game;
+                                pan_grab: None,
+                                target_cell: cell,
+                                zero_mine_warning: false,
+                                is_record: is_rec,
+                                record_saved: false,
+                            });
+                            scene = Scene::Game;
                         }
+                    }
+                    }
+                }
+                // Record deletion confirmation (Records tab).
+                if let Some(id) = confirm_delete_record {
+                    let name = records
+                        .iter()
+                        .find(|r| r.id == id)
+                        .map(|r| r.name.clone())
+                        .unwrap_or_default();
+                    let sw = screen_width();
+                    let sh = screen_height();
+                    draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
+                    let p = Rect::new(sw / 2.0 - 250.0, sh / 2.0 - 100.0, 500.0, 200.0);
+                    ui::panel(p, ui::COL_PANEL);
+                    ui::txt("Delete record?", vec2(p.x + 24.0, p.y + 44.0), 22.0, ui::COL_TEXT);
+                    ui::txt(
+                        &format!("\"{name}\" — the record will be lost permanently"),
+                        vec2(p.x + 24.0, p.y + 72.0),
+                        14.0,
+                        ui::COL_TEXT_DIM,
+                    );
+                    if ui::danger_button(Rect::new(p.x + 24.0, p.y + 116.0, 150.0, 46.0), "Delete", 18.0, true) {
+                        db::delete_record(&conn, id);
+                        records = db::list_records(&conn);
+                        confirm_delete_record = None;
+                    }
+                    if ui::button(Rect::new(p.x + p.w - 174.0, p.y + 116.0, 150.0, 46.0), "Cancel", 18.0, true) {
+                        confirm_delete_record = None;
                     }
                 }
             }
@@ -468,7 +593,26 @@ async fn main() {
                 }
 
                 if let Some(e) = &form.error {
-                    ui::txt(e, vec2(p.x + 28.0, p.y + ph - 150.0), 14.0, ui::COL_DANGER);
+                    ui::txt(e, vec2(p.x + 28.0, p.y + ph - 118.0), 14.0, ui::COL_DANGER);
+                }
+
+                // "Count as record" checkbox.
+                {
+                    let cb = Rect::new(p.x + 28.0, p.y + ph - 148.0, 22.0, 22.0);
+                    draw_rectangle_rec(cb, ui::COL_PANEL_DARK);
+                    draw_rectangle_lines_ex(cb, 2.0, if form.is_record { ui::COL_GOLD } else { ui::COL_BORDER });
+                    if form.is_record {
+                        ui::txt("x", vec2(cb.x + 5.0, cb.y + 18.0), 16.0, ui::COL_GOLD);
+                    }
+                    ui::txt(
+                        "count as record (wins are saved to the Records tab)",
+                        vec2(cb.x + 30.0, cb.y + 17.0),
+                        14.0,
+                        ui::COL_TEXT_DIM,
+                    );
+                    if cb.contains(ui::mouse()) && is_mouse_button_released(MouseButton::Left) {
+                        form.is_record = !form.is_record;
+                    }
                 }
 
                 let by = p.y + ph - 64.0;
@@ -481,7 +625,8 @@ async fn main() {
                             } else {
                                 form.name.value.trim().to_string()
                             };
-                            let id = db::insert_board(&conn, &name, &b);
+                            let is_rec = form.is_record;
+                            let id = db::insert_board(&conn, &name, &b, is_rec);
                             let fit = ((screen_width() - 120.0) / b.width() as f32)
                                 .min((screen_height() - HUD_H - 120.0) / b.height() as f32);
                             let cell = fit.clamp(CELL_MIN, CELL_MAX);
@@ -501,6 +646,8 @@ async fn main() {
                                 pan_grab: None,
                                 target_cell: cell,
                                 zero_mine_warning: fallback_mine,
+                                is_record: is_rec,
+                                record_saved: false,
                             });
                             scene = Scene::Game;
                         }
@@ -771,6 +918,18 @@ async fn main() {
                     }
                 }
 
+                // Record save on win: only record-flagged fields, exactly once.
+                if g.board.status == Status::Won && g.is_record && !g.record_saved {
+                    let time_played = match (g.board.def.time_limit_secs, g.board.time_left) {
+                        (Some(limit), Some(left)) => limit.saturating_sub(left),
+                        _ => g.session_elapsed,
+                    };
+                    let name = db::field_name(&conn, g.id).unwrap_or_else(|| "record".into());
+                    db::insert_record(&conn, &name, &g.board, time_played);
+                    records = db::list_records(&conn);
+                    g.record_saved = true;
+                }
+
                 // HUD.
                 draw_rectangle(0.0, 0.0, screen_width(), HUD_H, ui::COL_PANEL_DARK);
                 draw_line(0.0, HUD_H, screen_width(), HUD_H, 2.0, ui::COL_BORDER);
@@ -905,6 +1064,101 @@ async fn main() {
                     }
                     rows = db::list_fields(&conn);
                     game = None;
+                    scene = Scene::Menu;
+                }
+            }
+            Scene::RecordView => {
+                let Some(rv) = &mut record_viewer else {
+                    scene = Scene::Menu;
+                    continue;
+                };
+                let dt = get_frame_time();
+
+                // Pan (WASD / arrows) and wheel zoom — for viewing large fields.
+                let pan_speed = 700.0 * dt;
+                if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
+                    rv.cam.x -= pan_speed;
+                }
+                if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
+                    rv.cam.x += pan_speed;
+                }
+                if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
+                    rv.cam.y -= pan_speed;
+                }
+                if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
+                    rv.cam.y += pan_speed;
+                }
+                let notches = ui::normalize_wheel(mouse_wheel().1);
+                if notches != 0.0 {
+                    rv.target_cell = (rv.target_cell * (1.15f32).powf(notches)).clamp(CELL_MIN, CELL_MAX);
+                }
+                if (rv.cell - rv.target_cell).abs() > 0.05 {
+                    let m = ui::mouse();
+                    let center = vec2(screen_width() / 2.0, screen_height() / 2.0);
+                    let old = rv.cell;
+                    let k = 1.0 - (-dt * 10.0).exp();
+                    rv.cell = old + (rv.target_cell - old) * k;
+                    if m.y > HUD_H {
+                        rv.cam = zoom_cam_toward(rv.cam, old, rv.cell, m, center);
+                    }
+                }
+                rv.cam = clamp_cam(rv.cam, &rv.board, rv.cell);
+
+                // Snapshot rendering: the winning position, read-only.
+                let o = origin(rv.cam);
+                let bw = rv.board.width();
+                let bh = rv.board.height();
+                let cell = rv.cell;
+                let x0 = ((-o.x) / cell).floor().max(0.0) as u32;
+                let y0 = ((HUD_H - o.y) / cell).floor().max(0.0) as u32;
+                let x1 = (((screen_width() - o.x) / cell).ceil() as u32 + 1).min(bw);
+                let y1 = (((screen_height() - o.y) / cell).ceil() as u32 + 1).min(bh);
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        let i = (y * bw + x) as usize;
+                        let r = Rect::new(o.x + x as f32 * cell, o.y + y as f32 * cell, cell, cell);
+                        let checker = (x + y) % 2 == 0;
+                        draw_rectangle_rec(r, if checker { ui::COL_CELL_OPEN } else { ui::COL_CELL_OPEN_B });
+                        if rv.board.defused[i] {
+                            draw_rectangle_rec(r, ui::COL_MINE_BG);
+                            let c = vec2(r.x + cell / 2.0, r.y + cell / 2.0);
+                            draw_circle(c.x, c.y, cell * 0.28, ui::COL_MINE_DOT);
+                        } else if rv.board.flagged[i] {
+                            let px = r.x + cell * 0.36;
+                            let pole_top = r.y + cell * 0.2;
+                            let pole_bot = r.y + cell * 0.72;
+                            draw_line(px, pole_top, px, pole_bot, 2.0f32.max(cell * 0.05), ui::COL_TEXT);
+                            draw_triangle(
+                                vec2(px, r.y + cell * 0.2),
+                                vec2(px + cell * 0.36, (pole_top + pole_bot) / 2.0),
+                                vec2(px, r.y + cell * 0.46),
+                                ui::COL_DANGER,
+                            );
+                        } else {
+                            let n = rv.board.adjacent_active_mines(x, y);
+                            if n > 0 {
+                                ui::txt_centered(
+                                    &n.to_string(),
+                                    vec2(r.x + cell / 2.0, r.y + cell / 2.0),
+                                    cell * 0.55,
+                                    ui::NUM_COLORS[(n - 1) as usize],
+                                );
+                            }
+                        }
+                        draw_rectangle_lines_ex(r, 1.0, ui::COL_CELL_GRID);
+                    }
+                }
+                ui::txt(
+                    "winning position · WASD/arrows - pan · wheel - zoom",
+                    vec2(16.0, screen_height() - 12.0),
+                    13.0,
+                    ui::COL_TEXT_DIM,
+                );
+                if ui::button(Rect::new(10.0, 10.0, 120.0, 36.0), "< Back", 16.0, true)
+                    || is_key_pressed(KeyCode::Escape)
+                {
+                    record_viewer = None;
+                    records = db::list_records(&conn);
                     scene = Scene::Menu;
                 }
             }
