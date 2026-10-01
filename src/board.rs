@@ -442,6 +442,18 @@ mod tests {
     }
 
     #[test]
+    fn hopeless_chance_reports_failure_instead_of_creating_a_mineless_field() {
+        // 0.00001% on 9 cells: ~64 full field rolls are essentially guaranteed
+        // to produce zero mines -> the caller must get None (error), never a board.
+        let mut rng = Rng::new(42);
+        let d = def(3, 3, 0.00001, None, None);
+        match Board::generate_with_mines(d, &mut rng, 64) {
+            Some(b) => panic!("a mineless field must never be returned: mines={:?}", b.mines),
+            None => {} // error path, exactly as the create form expects
+        }
+    }
+
+    #[test]
     fn reveal_flood_fills_connected_zeros() {
         // 3x3 board with a single mine in the corner (0,0).
         let mut b = Board::new_empty_cells(3, 3);
