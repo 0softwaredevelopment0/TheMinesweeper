@@ -29,6 +29,9 @@ struct GameView {
     session_elapsed: u32,
     pan_grab: Option<Vec2>,
     target_cell: f32,
+    /// Shown once when the field was created with a chance so low that zero
+    /// mines rolled and the generator placed one fallback mine at random.
+    zero_mine_warning: bool,
 }
 
 /// CC0 sounds by Kenney (kenney.nl), bundled via include_bytes and played
@@ -344,10 +347,11 @@ async fn main() {
                                 sec_accum: 0.0,
                                 autosave_accum: 0.0,
                                 session_elapsed: 0,
-                                pan_grab: None,
+                                    pan_grab: None,
                                     target_cell: cell,
-                            });
-                            scene = Scene::Game;
+                                    zero_mine_warning: false,
+                                });
+                                    scene = Scene::Game;
                         }
                     }
                 }
@@ -470,40 +474,37 @@ async fn main() {
                 let by = p.y + ph - 64.0;
                 if ui::button(Rect::new(p.x + 28.0, by, 220.0, 46.0), "Create field", 17.0, true) {
                     match form.build_def() {
-                        Ok(def) => match Board::generate_with_mines(def, &mut Rng::from_system_time(), 64) {
-                            Some(b) => {
-                                let name = if form.name.value.trim().is_empty() {
-                                    format!("Field {}", rows.len() + 1)
-                                } else {
-                                    form.name.value.trim().to_string()
-                                };
-                                let id = db::insert_board(&conn, &name, &b);
-                                let fit = ((screen_width() - 120.0) / b.width() as f32)
-                                    .min((screen_height() - HUD_H - 120.0) / b.height() as f32);
-                                let cell = fit.clamp(CELL_MIN, CELL_MAX);
-                                let cam = clamp_cam(
-                                    vec2(b.width() as f32 * cell / 2.0, b.height() as f32 * cell / 2.0),
-                                    &b,
-                                    cell,
-                                );
-                                game = Some(GameView {
-                                    id,
-                                    board: b,
-                                    cell,
-                                    cam,
-                                    sec_accum: 0.0,
-                                    autosave_accum: 0.0,
-                                    session_elapsed: 0,
-                                    pan_grab: None,
-                                    target_cell: cell,
-                                });
-                                scene = Scene::Game;
-                            }
-                            None => {
-                                form.error =
-                                    Some("Mine chance too low: not a single mine was rolled — raise it".into());
-                            }
-                        },
+                        Ok(def) => {
+                            let (b, fallback_mine) =
+                                Board::generate_with_mines(def, &mut Rng::from_system_time(), 64);
+                            let name = if form.name.value.trim().is_empty() {
+                                format!("Field {}", rows.len() + 1)
+                            } else {
+                                form.name.value.trim().to_string()
+                            };
+                            let id = db::insert_board(&conn, &name, &b);
+                            let fit = ((screen_width() - 120.0) / b.width() as f32)
+                                .min((screen_height() - HUD_H - 120.0) / b.height() as f32);
+                            let cell = fit.clamp(CELL_MIN, CELL_MAX);
+                            let cam = clamp_cam(
+                                vec2(b.width() as f32 * cell / 2.0, b.height() as f32 * cell / 2.0),
+                                &b,
+                                cell,
+                            );
+                            game = Some(GameView {
+                                id,
+                                board: b,
+                                cell,
+                                cam,
+                                sec_accum: 0.0,
+                                autosave_accum: 0.0,
+                                session_elapsed: 0,
+                                pan_grab: None,
+                                target_cell: cell,
+                                zero_mine_warning: fallback_mine,
+                            });
+                            scene = Scene::Game;
+                        }
                         Err(e) => form.error = Some(e),
                     }
                 }
@@ -679,7 +680,7 @@ async fn main() {
                 if is_key_pressed(KeyCode::M) {
                     sounds.muted = !sounds.muted;
                 }
-                if active {
+                if active && !g.zero_mine_warning {
                     if let Some((x, y)) = hover_cell {
                         let ci = (y * bw + x) as usize;
                         let status_before = g.board.status;
@@ -779,6 +780,31 @@ async fn main() {
                     14.0,
                     if sounds.muted { ui::COL_TEXT_DIM } else { ui::COL_ACCENT },
                 );
+                // Zero-mine warning: shown once, OK dismisses it and unblocks play.
+                if g.zero_mine_warning {
+                    let sw = screen_width();
+                    let sh = screen_height();
+                    draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
+                    let p = Rect::new(sw / 2.0 - 320.0, sh / 2.0 - 120.0, 640.0, 240.0);
+                    ui::panel(p, ui::COL_PANEL);
+                    ui::txt_centered("Zero mines rolled", vec2(sw / 2.0, p.y + 74.0), 30.0, ui::COL_GOLD);
+                    ui::txt_centered(
+                        "The mine chance was too low: not a single mine was generated,",
+                        vec2(sw / 2.0, p.y + 122.0),
+                        16.0,
+                        ui::COL_TEXT,
+                    );
+                    ui::txt_centered(
+                        "so one mine was placed in a random cell of the field.",
+                        vec2(sw / 2.0, p.y + 146.0),
+                        16.0,
+                        ui::COL_TEXT,
+                    );
+                    if ui::button(Rect::new(sw / 2.0 - 90.0, p.y + 172.0, 180.0, 46.0), "OK", 18.0, true) {
+                        g.zero_mine_warning = false;
+                    }
+                }
+
                 let mut exit_requested = ui::button(Rect::new(screen_width() - 136.0, 10.0, 120.0, 36.0), "Menu", 16.0, true)
                     || is_key_pressed(KeyCode::Escape);
 
