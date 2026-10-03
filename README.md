@@ -1,5 +1,7 @@
 # TheMinesweeper
 
+![Latest release](https://img.shields.io/github/v/release/0softwaredevelopment0/TheMinesweeper)
+
 Portable classic Minesweeper in Rust with a [macroquad](https://macroquad.rs) GUI.
 Run the exe from any folder — everything it stores lives next to it in a single SQLite
 file (`minesweeper.db`), so the game is fully portable.
