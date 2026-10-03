@@ -3,7 +3,7 @@ name = "theminesweeper"
 version = "0.3.1-beta.1"
 edition = "2024"
 description = "Classic Minesweeper game with a macroquad GUI"
-license = "MIT"
+license = "AGPL-3.0"
 
 [dependencies]
 macroquad = "0.4"
